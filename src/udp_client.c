@@ -15,6 +15,8 @@ struct addrinfo hints, *res;
 struct sockaddr_in addr;
 char buffer[BUF_SIZE];
 char msg[BUF_SIZE];
+char *uid;
+char *password;
 
 void parse_msg(char *buffer, char *msg) {
     char *temp;
@@ -23,14 +25,37 @@ void parse_msg(char *buffer, char *msg) {
     temp = strtok(buffer, " ");
     if (!strcmp(temp, "login")) {
         strcat(msg, "LIN");
+        uid = strtok(NULL, " ");
+        strcat(msg, " ");
+        strcat(msg, uid);
+        password = strtok(NULL, " ");
+        strcat(msg, " ");
+        strcat(msg, password);   
     }
-    while (temp != NULL) {
-        temp = strtok(NULL, " ");
-        if (temp != NULL) {
-            strcat(msg, " ");
-            strcat(msg, temp);
-        }
-    };
+    else if (!strcmp(temp, "logout")) {
+        strcat(msg, "LOU");
+        strcat(msg, " ");
+        strcat(msg, uid);
+        strcat(msg, " ");
+        strcat(msg, password);   
+    }
+    else if (!strcmp(temp, "unregister")) {
+        strcat(msg, "UNR");
+        strcat(msg, " ");
+        strcat(msg, uid);
+        strcat(msg, " ");
+        strcat(msg, password);   
+    }
+    else if (!strcmp(temp, "myauctions") || !strcmp(temp, "ma")) {
+        strcat(msg, "LMA");
+        strcat(msg, " ");
+        strcat(msg, uid);  
+    }
+    else if (!strcmp(temp, "mybids") || !strcmp(temp, "mb")) {
+        strcat(msg, "LMB");
+        strcat(msg, " ");
+        strcat(msg, uid);  
+    }
     strcat(msg, "\n");
 }
 
