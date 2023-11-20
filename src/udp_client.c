@@ -20,6 +20,8 @@ char asport[8] = "58051";  // 58000 + group number (51)
 // tejo ip: 193.136.138.142
 // 58011 : server
 // 58001 : echo
+char *uid;
+char *password;
 
 void parse_msg(char *buffer, char *msg) {
     char *temp;
@@ -28,14 +30,37 @@ void parse_msg(char *buffer, char *msg) {
     temp = strtok(buffer, " ");
     if (!strcmp(temp, "login")) {
         strcat(msg, "LIN");
+        uid = strtok(NULL, " ");
+        strcat(msg, " ");
+        strcat(msg, uid);
+        password = strtok(NULL, " ");
+        strcat(msg, " ");
+        strcat(msg, password);   
     }
-    while (temp != NULL) {
-        temp = strtok(NULL, " ");
-        if (temp != NULL) {
-            strcat(msg, " ");
-            strcat(msg, temp);
-        }
-    };
+    else if (!strcmp(temp, "logout")) {
+        strcat(msg, "LOU");
+        strcat(msg, " ");
+        strcat(msg, uid);
+        strcat(msg, " ");
+        strcat(msg, password);   
+    }
+    else if (!strcmp(temp, "unregister")) {
+        strcat(msg, "UNR");
+        strcat(msg, " ");
+        strcat(msg, uid);
+        strcat(msg, " ");
+        strcat(msg, password);   
+    }
+    else if (!strcmp(temp, "myauctions") || !strcmp(temp, "ma")) {
+        strcat(msg, "LMA");
+        strcat(msg, " ");
+        strcat(msg, uid);  
+    }
+    else if (!strcmp(temp, "mybids") || !strcmp(temp, "mb")) {
+        strcat(msg, "LMB");
+        strcat(msg, " ");
+        strcat(msg, uid);  
+    }
     strcat(msg, "\n");
 }
 
