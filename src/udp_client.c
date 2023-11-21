@@ -9,8 +9,11 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#define DEBUG 1
 #define BUF_SIZE 128
 #define MSG_SIZE 1024
+#define TRIM 1
+#define NO_TRIM 0
 int fd, errcode;
 ssize_t n;
 socklen_t addrlen;
@@ -100,7 +103,7 @@ int tcp_close() {
 
 int tcp(char *msg) {
     if (tcp_open() == -1) return -1;
-    if (tcp_talk(msg, 1) == -1) return -1;
+    if (tcp_talk(msg, TRIM) == -1) return -1;
     if (tcp_close() == -1) return -1;
     return 0;
 }
@@ -165,7 +168,7 @@ int parse_msg(char *buffer, char *msg) {
         strcat(msg, uid);
     } else if (!strcmp(temp, "open")) {
         float start_value;
-        int time_active, fsize, j, bytes_string, remaining;
+        int time_active, fsize, remaining;
         char description[BUF_SIZE], img_fname[BUF_SIZE];
         if (sscanf(buffer2, "open %s %s %f %d", description, img_fname,
                    &start_value, &time_active) != 4)
@@ -176,21 +179,20 @@ int parse_msg(char *buffer, char *msg) {
         fsize = get_file_size(img_fname);
         if (fsize < 0) return -1;
 
-        bytes_string = sprintf(msg, "OPA %s %f %d %s %d", description,
+        sprintf(msg, "OPA %s %f %d %s %d", description,
                                start_value, time_active, img_fname, fsize);
-        msg[bytes_string] = ' ';  // remove '\0'
 
         int file_to_send;
         if ((file_to_send = open(img_fname, O_RDONLY)) < 0) return -1;
         remaining = fsize;
         tcp_open();
-        tcp_talk(msg, 0);  // send text before file
+        tcp_talk(msg, TRIM);  // send text before file
         while (remaining > 0) {
             read(file_to_send, msg, BUF_SIZE);
-            tcp_talk(msg, 0);
+            tcp_talk(msg, NO_TRIM);
             remaining -= BUF_SIZE;
         }
-        tcp_talk(" \n", 0);
+        tcp_talk(" \n", NO_TRIM);
         tcp_close();
 
     } else if (!strcmp(temp, "close")) {
@@ -230,6 +232,7 @@ int udp(char *msg) {
     if (n == -1) /*error*/
         exit(1);
     addrlen = sizeof(addr);
+    if (DEBUG) printf("Sent message: %s\n",buffer);
 
     memset(buffer, 0, BUF_SIZE);
     n = recvfrom(fd, buffer, BUF_SIZE, 0, (struct sockaddr *)&addr, &addrlen);
@@ -263,8 +266,8 @@ int main(int argc, char **argv) {
         // read message from terminal
         fgets(buffer, BUF_SIZE, stdin);
         memset(msg, 0, BUF_SIZE);
-        parse_msg(buffer, msg);
-        printf("%s\n", msg);
+        strncpy(msg,buffer,BUF_SIZE-1);
+        //parse_msg(buffer, msg);
 
         udp(msg);
     }
