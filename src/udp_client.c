@@ -83,7 +83,8 @@ int tcp_open() {
     É devolvido um descritor de ficheiro (fd) para onde se deve comunicar. */
     fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd == -1) {
-        exit(1);
+        if (DEBUG) printf("TCP | Error creating socket\n");
+        return -1;
     }
 
     memset(&hints, 0, sizeof hints);
@@ -92,7 +93,8 @@ int tcp_open() {
 
     errcode = getaddrinfo(asip, asport, &hints, &res);
     if (errcode != 0) {
-        exit(1);
+        if (DEBUG) printf("TCP | Error on getaddrinfo\n");
+        return -1;
     }
 
     /* Em TCP é necessário estabelecer uma ligação com o servidor primeiro
@@ -100,7 +102,8 @@ int tcp_open() {
        de `getaddrinfo()`. */
     n = connect(fd, res->ai_addr, res->ai_addrlen);
     if (n == -1) {
-        exit(1);
+        if (DEBUG) printf("TCP | Error on connect\n");
+        return -1;
     }
 
     return 0;
@@ -109,26 +112,23 @@ int tcp_open() {
 int tcp_talk(char *msg, int trim) {
     char buf_tcp[TCP_BUF_SIZE];
     int str_len = strlen(msg);
-    if (msg[str_len] != '\n') msg[str_len] = '\n';
     if (trim < 0 || trim > 1) return -1;
     /* Escreve a mensagem para o servidor, especificando o seu
      * tamanho */
-    n = write(fd, msg, trim * (strlen(msg) + 1) + (1 - trim) * TCP_BUF_SIZE);
+    n = write(fd, msg, trim * (str_len + 1) + (1 - trim) * TCP_BUF_SIZE);
     if (n == -1) {
         exit(1);
     }
-
+puts("B");
     /* Lê 128 Bytes do servidor e guarda-os no buffer. */
     n = read(fd, buf_tcp, 128);
     if (n == -1) {
         exit(1);
     }
-
+puts("C");
     /* Imprime a mensagem "echo" e o conteúdo do buffer (ou seja, o que foi
     recebido do servidor) para o STDOUT (fd = 1) */
-    write(1, "echo: ", 6);
-    write(1, buf_tcp, n);
-
+    printf("echo: %s\n",buf_tcp);
     return 0;
 }
 
