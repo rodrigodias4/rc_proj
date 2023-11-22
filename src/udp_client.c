@@ -29,65 +29,17 @@ char uid[BUF_SIZE] = "";
 char password[BUF_SIZE] = "";
 char aid[BUF_SIZE] = "";
 
+long get_file_size(char *filename) {
+    struct stat file_status;
+    if (stat(filename, &file_status) < 0) {
+        return -1;
+    }
+
+    return file_status.st_size;
+}
+
 /** Checks if the program has user UID and password (user has to login) */
 int has_uid_pwd() { return strcmp(uid, "") && strcmp(password, ""); }
-
-int parse_msg_udp(char *buffer, char *msg) {
-    char temp[BUF_SIZE];
-
-    // command
-    sscanf(buffer, "%s ", temp);
-    if (!strcmp(temp, "login")) {
-        scanf("%s %s", uid, password);
-        sprintf(msg, "LIN %s %s", uid, password);
-    } else if (!strcmp(temp, "logout")) {
-        if (!has_uid_pwd()) {
-            printf(
-                "UID and password not found locally. Try logging in first.\n");
-            return -1;
-        }
-        sprintf(msg, "LOU %s %s", uid, password);
-    } else if (!strcmp(temp, "unregister")) {
-        sprintf(msg, "UNR %s %s", uid, password);
-    } else if (!strcmp(temp, "myauctions") || !strcmp(temp, "ma")) {
-        sprintf(msg, "LMA %s", uid);
-    } else if (!strcmp(temp, "mybids") || !strcmp(temp, "mb")) {
-        sprintf(msg, "LMB %s", uid);
-    } else if (!strcmp(temp, "list") || !strcmp(temp, "l")) {
-        sprintf(msg, "LST");
-    } else if (!strcmp(temp, "show_record") || !strcmp(temp, "sr")) {
-        scanf("%s", aid);
-        sprintf(msg, "SRC %s", aid);
-    } else {
-        return 0;  // input does not correspond to any of the above
-    }
-
-    return 1;  // return 1 if any correspond
-}
-
-int parse_msg_tcp(char *buffer, char *msg) { return 0; }
-
-int parse_msg(char *msg) {
-    char buffer[BUF_SIZE];
-    int res;
-    if (fgets(buffer, BUFSIZ - 1, stdin) == NULL) return -1;
-
-    res = parse_msg_udp(buffer, msg);  // check udp commands
-    if (res == -1) return -1;          // error
-    if (res == 1) {                    // input corresponds to udp command
-        strcat(msg, "\n");
-        return 0;
-    }
-
-    res = parse_msg_tcp(buffer, msg);  // check tcp commands
-    if (res == -1) return -1;          // error
-    if (res == 1) {                    // input corresponds to tcp command
-        strcat(msg, "\n");
-        return 0;
-    }
-
-    return -1;  // input doesn't correspond to command
-}
 
 int udp(char *msg) {
     char buf_udp[BUF_SIZE];
@@ -122,15 +74,6 @@ int udp(char *msg) {
     close(fd);
 
     return 0;
-}
-
-long get_file_size(char *filename) {
-    struct stat file_status;
-    if (stat(filename, &file_status) < 0) {
-        return -1;
-    }
-
-    return file_status.st_size;
 }
 
 /* TCP */
@@ -226,6 +169,117 @@ int listener_RBD() {
     return 0;
 }
 
+/* User input message interpretation */
+
+int parse_msg_udp(char *buffer, char *msg) {
+    char temp[BUF_SIZE];
+    // command
+    sscanf(buffer, "%s ", temp);
+    if (!strcmp(temp, "login")) {
+        if (sscanf(buffer, "login %s %s", uid, password) != 2)
+            return -1;
+        sprintf(msg, "LIN %s %s", uid, password);
+    } else if (!strcmp(temp, "logout")) {
+        if (!has_uid_pwd()) {
+            printf(
+                "UID and password not found locally. Try logging in first.\n");
+            return -1;
+        }
+        sprintf(msg, "LOU %s %s", uid, password);
+    } else if (!strcmp(temp, "unregister")) {
+        sprintf(msg, "UNR %s %s", uid, password);
+    } else if (!strcmp(temp, "myauctions") || !strcmp(temp, "ma")) {
+        sprintf(msg, "LMA %s", uid);
+    } else if (!strcmp(temp, "mybids") || !strcmp(temp, "mb")) {
+        sprintf(msg, "LMB %s", uid);
+    } else if (!strcmp(temp, "list") || !strcmp(temp, "l")) {
+        sprintf(msg, "LST");
+    } else if (!strcmp(temp, "show_record") || !strcmp(temp, "sr")) {
+        if (sscanf(buffer + strlen(temp) + 1, "%s", aid) != 1)
+            return -1;
+        sprintf(msg, "SRC %s", aid);
+    } else {
+        return 0;  // input does not correspond to any of the above
+    }
+
+    return 1;  // return 1 if any correspond
+}
+
+/* NOT TESTED AT ALL */
+int parse_msg_tcp(char *buffer, char *msg) {
+    char temp[BUF_SIZE];
+
+    sscanf(buffer, "%s ", temp);
+    if (!strcmp(temp, "open")) {
+        float start_value;
+        int time_active, fsize, remaining;
+        char description[BUF_SIZE], img_fname[BUF_SIZE];
+        if (sscanf(buffer, "open %s %s %f %d", description, img_fname,
+                   &start_value, &time_active) != 4)
+            return -1;
+
+        if (!strlen(uid) || !strlen(password)) return -1;
+
+        fsize = get_file_size(img_fname);
+        if (fsize < 0) return -1;
+
+        sprintf(msg, "OPA %s %f %d %s %d", description, start_value,
+                time_active, img_fname, fsize);
+
+        int file_to_send;
+        if ((file_to_send = open(img_fname, O_RDONLY)) < 0) return -1;
+        remaining = fsize;
+        tcp_open();
+        tcp_talk(msg, TRIM);  // send text before file
+        while (remaining > 0) {
+            read(file_to_send, msg, BUF_SIZE);
+            tcp_talk(msg, NO_TRIM);
+            remaining -= BUF_SIZE;
+        }
+        tcp_talk(" \n", NO_TRIM);
+        tcp_close();
+
+    } else if (!strcmp(temp, "close")) {
+        if (sscanf(buffer, "close %s", aid) != 1) return -1;
+
+        sprintf(msg, "CLS %s %s %s\n", uid, password, aid);
+        tcp(msg);
+        listener_RCL();
+    } else if (!strcmp(temp, "show_asset") || !strcmp(temp, "sa")) {
+        if (sscanf(buffer + strlen(temp + 1), "%s", aid) != 2) return -1;
+        sprintf(msg, "SAS %s\n", aid);
+        tcp(msg);
+        listener_ROA();
+    } else if (!strcmp(temp, "bid")) {
+        // TODO
+    }
+
+    return 0;
+}
+
+int parse_msg(char *msg) {
+    char buffer[BUF_SIZE];
+    int res;
+    if (fgets(buffer, BUFSIZ - 1, stdin) == NULL) return -1;
+
+    res = parse_msg_udp(buffer, msg);  // check udp commands
+    if (res == -1) return -1;          // error
+    if (res == 1) {                    // input corresponds to udp command
+        strcat(msg, "\n");
+        puts(msg);
+        udp(msg);
+        return 0;
+    }
+
+    res = parse_msg_tcp(buffer, msg);  // check tcp commands
+    if (res == -1) return -1;          // error
+    if (res == 1) {                    // input corresponds to tcp command
+        return 0;
+    }
+
+    return -1;  // input doesn't correspond to command
+}
+
 int main(int argc, char **argv) {
     if (argc > 1) {
         for (int i = 1; i < argc && i < 5; i += 2) {
@@ -243,6 +297,8 @@ int main(int argc, char **argv) {
     while (1) {
         // read message from terminal
         memset(msg, 0, BUF_SIZE);
-        parse_msg(msg);
+        if (parse_msg(msg) == -1)
+            puts("Invalid input.");
+        fflush(stdout);
     }
 }

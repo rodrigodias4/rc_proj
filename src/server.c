@@ -29,17 +29,17 @@ int init_udp() {
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_DGRAM;
     /* É passada uma flag para indicar que o socket é passivo.
-    Esta flag é usada mais tarde pela função `bind()` e indica que
+    Esta flag é usada mais tarde pela função 'bind()' e indica que
     o socket aceita conexões. */
     hints.ai_flags = AI_PASSIVE;
 
-    /* Ao passar o endereço `NULL`, indicamos que somos nós o Host. */
+    /* Ao passar o endereço 'NULL', indicamos que somos nós o Host. */
     if (getaddrinfo(NULL, PORT, &hints, &res) != 0) exit(1);
 
     /* Quando uma socket é criada, não tem um endereço associado.
     Esta função serve para associar um endereço à socket, de forma a ser
     acessível por conexões externas ao programa. É associado o nosso endereço
-    (`res->ai_addr`, definido na chamada à função `getaddrinfo()`).*/
+    ('res->ai_addr', definido na chamada à função 'getaddrinfo()').*/
     if (bind(fd_udp, res->ai_addr, res->ai_addrlen) == -1) exit(1);
 
     return 0;
@@ -71,11 +71,13 @@ int handle_udp() {
     n = recvfrom(fd_udp, buffer, 128, 0, (struct sockaddr *)&addr, &addrlen);
     if (n == -1) return -1;
 
-    /* Faz `echo` da mensagem recebida para o STDOUT do servidor */
+    // TODO: INTERPRETAR MENSAGENS DO CLIENTE
+
+    /* Faz 'echo' da mensagem recebida para o STDOUT do servidor */
     printf("UDP | Received message | %s\n", buffer);
 
     /* Envia a mensagem recebida (atualmente presente no buffer) para o
-     * endereço `addr` de onde foram recebidos dados */
+     * endereço 'addr' de onde foram recebidos dados */
     n = sendto(fd_udp, buffer, n, 0, (struct sockaddr *)&addr, addrlen);
     if (n == -1) return -1;
     return 0;
@@ -87,8 +89,10 @@ int handle_tcp(int fd) {
     n = read(fd, buffer, 128);
     if (n == -1) exit(1);
 
-    /* Faz `echo` da mensagem recebida para o STDOUT do servidor */
+    /* Faz 'echo' da mensagem recebida para o STDOUT do servidor */
     printf("TCP | fd:%d\t| Received %s\n", fd, buffer);
+
+    // TODO: INTERPRETAR MENSAGENS DO CLIENTE
 
     /* Envia a mensagem recebida (atualmente presente no buffer) para a
      * socket */
@@ -104,8 +108,8 @@ int accept_tcp() {
 
     /* Aceita uma nova conexão e cria uma nova socket para a mesma.
     Quando a conexão é aceite, é automaticamente criada uma nova socket
-    para ela, guardada no `newfd`.
-    Do lado do cliente, esta conexão é feita através da função `connect()`.
+    para ela, guardada no 'newfd'.
+    Do lado do cliente, esta conexão é feita através da função 'connect()'.
     */
     if ((newfd = accept(fd_tcp, (struct sockaddr *)&addr, &addrlen)) == -1)
         exit(1);
