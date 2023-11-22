@@ -11,7 +11,7 @@
 #include <unistd.h>
 #define DEBUG 1
 #define BUF_SIZE 128
-#define MSG_SIZE 1024
+#define TCP_BUF_SIZE 1024
 #define TRIM 1
 #define NO_TRIM 0
 int fd, errcode;
@@ -19,15 +19,110 @@ ssize_t n;
 socklen_t addrlen;
 struct addrinfo hints, *res;
 struct sockaddr_in addr;
-char buffer[BUF_SIZE];
 char msg[1024];
 char asip[32] = "localhost";
 char asport[8] = "58051";  // 58000 + group number (51)
 // tejo ip: 193.136.138.142
 // 58011 : server
 // 58001 : echo
-char *uid;
-char *password;
+char uid[BUF_SIZE] = "";
+char password[BUF_SIZE] = "";
+char aid[BUF_SIZE] = "";
+
+/** Checks if the program has user UID and password (user has to login) */
+int has_uid_pwd() { return strcmp(uid, "") && strcmp(password, ""); }
+
+int parse_msg_udp(char *buffer, char *msg) {
+    char temp[BUF_SIZE];
+
+    // command
+    sscanf(buffer, "%s ", temp);
+    if (!strcmp(temp, "login")) {
+        scanf("%s %s", uid, password);
+        sprintf(msg, "LIN %s %s", uid, password);
+    } else if (!strcmp(temp, "logout")) {
+        if (!has_uid_pwd()) {
+            printf(
+                "UID and password not found locally. Try logging in first.\n");
+            return -1;
+        }
+        sprintf(msg, "LOU %s %s", uid, password);
+    } else if (!strcmp(temp, "unregister")) {
+        sprintf(msg, "UNR %s %s", uid, password);
+    } else if (!strcmp(temp, "myauctions") || !strcmp(temp, "ma")) {
+        sprintf(msg, "LMA %s", uid);
+    } else if (!strcmp(temp, "mybids") || !strcmp(temp, "mb")) {
+        sprintf(msg, "LMB %s", uid);
+    } else if (!strcmp(temp, "list") || !strcmp(temp, "l")) {
+        sprintf(msg, "LST");
+    } else if (!strcmp(temp, "show_record") || !strcmp(temp, "sr")) {
+        scanf("%s", aid);
+        sprintf(msg, "SRC %s", aid);
+    } else {
+        return 0;  // input does not correspond to any of the above
+    }
+
+    return 1;  // return 1 if any correspond
+}
+
+int parse_msg_tcp(char *buffer, char *msg) { return 0; }
+
+int parse_msg(char *msg) {
+    char buffer[BUF_SIZE];
+    int res;
+    if (fgets(buffer, BUFSIZ - 1, stdin) == NULL) return -1;
+
+    res = parse_msg_udp(buffer, msg);  // check udp commands
+    if (res == -1) return -1;          // error
+    if (res == 1) {                    // input corresponds to udp command
+        strcat(msg, "\n");
+        return 0;
+    }
+
+    res = parse_msg_tcp(buffer, msg);  // check tcp commands
+    if (res == -1) return -1;          // error
+    if (res == 1) {                    // input corresponds to tcp command
+        strcat(msg, "\n");
+        return 0;
+    }
+
+    return -1;  // input doesn't correspond to command
+}
+
+int udp(char *msg) {
+    char buf_udp[BUF_SIZE];
+    // UDP socket
+    fd = socket(AF_INET, SOCK_DGRAM, 0);
+
+    if (fd == -1) /*error*/
+        exit(1);
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_DGRAM;
+    // IPv4
+    // UDP socket
+    errcode = getaddrinfo(asip, asport, &hints, &res);
+    if (errcode != 0) /*error*/
+        exit(1);
+
+    n = sendto(fd, msg, strlen(msg) + 1, 0, res->ai_addr, res->ai_addrlen);
+    if (n == -1) /*error*/
+        exit(1);
+    addrlen = sizeof(addr);
+
+    memset(buf_udp, 0, BUF_SIZE);
+    n = recvfrom(fd, buf_udp, BUF_SIZE, 0, (struct sockaddr *)&addr, &addrlen);
+    if (n == -1) /*error*/
+        exit(1);
+
+    write(1, "echo: ", 6);
+    write(1, buf_udp, n);
+
+    freeaddrinfo(res);
+    close(fd);
+
+    return 0;
+}
 
 long get_file_size(char *filename) {
     struct stat file_status;
@@ -69,18 +164,19 @@ int tcp_open() {
 }
 
 int tcp_talk(char *msg, int trim) {
+    char buf_tcp[TCP_BUF_SIZE];
     int str_len = strlen(msg);
     if (msg[str_len] != '\n') msg[str_len] = '\n';
     if (trim < 0 || trim > 1) return -1;
     /* Escreve a mensagem para o servidor, especificando o seu
      * tamanho */
-    n = write(fd, msg, trim * (strlen(msg) + 1) + (1 - trim) * MSG_SIZE);
+    n = write(fd, msg, trim * (strlen(msg) + 1) + (1 - trim) * TCP_BUF_SIZE);
     if (n == -1) {
         exit(1);
     }
 
     /* Lê 128 Bytes do servidor e guarda-os no buffer. */
-    n = read(fd, buffer, 128);
+    n = read(fd, buf_tcp, 128);
     if (n == -1) {
         exit(1);
     }
@@ -88,7 +184,7 @@ int tcp_talk(char *msg, int trim) {
     /* Imprime a mensagem "echo" e o conteúdo do buffer (ou seja, o que foi
     recebido do servidor) para o STDOUT (fd = 1) */
     write(1, "echo: ", 6);
-    write(1, buffer, n);
+    write(1, buf_tcp, n);
 
     return 0;
 }
@@ -130,124 +226,6 @@ int listener_RBD() {
     return 0;
 }
 
-int parse_msg(char *buffer, char *msg) {
-    char aid[32];
-    char *temp;
-    char buffer2[BUF_SIZE];
-    strncpy(buffer2, buffer, BUF_SIZE);
-
-    // command
-    temp = strtok(buffer, " ");
-    if (!strcmp(temp, "login")) {
-        strcat(msg, "LIN");
-        uid = strtok(NULL, " ");
-        strcat(msg, " ");
-        strcat(msg, uid);
-        password = strtok(NULL, " ");
-        strcat(msg, " ");
-        strcat(msg, password);
-    } else if (!strcmp(temp, "logout")) {
-        strcat(msg, "LOU");
-        strcat(msg, " ");
-        strcat(msg, uid);
-        strcat(msg, " ");
-        strcat(msg, password);
-    } else if (!strcmp(temp, "unregister")) {
-        strcat(msg, "UNR");
-        strcat(msg, " ");
-        strcat(msg, uid);
-        strcat(msg, " ");
-        strcat(msg, password);
-    } else if (!strcmp(temp, "myauctions") || !strcmp(temp, "ma")) {
-        strcat(msg, "LMA");
-        strcat(msg, " ");
-        strcat(msg, uid);
-    } else if (!strcmp(temp, "mybids") || !strcmp(temp, "mb")) {
-        strcat(msg, "LMB");
-        strcat(msg, " ");
-        strcat(msg, uid);
-    } else if (!strcmp(temp, "open")) {
-        float start_value;
-        int time_active, fsize, remaining;
-        char description[BUF_SIZE], img_fname[BUF_SIZE];
-        if (sscanf(buffer2, "open %s %s %f %d", description, img_fname,
-                   &start_value, &time_active) != 4)
-            return -1;
-
-        if (!strlen(uid) || !strlen(password)) return -1;
-
-        fsize = get_file_size(img_fname);
-        if (fsize < 0) return -1;
-
-        sprintf(msg, "OPA %s %f %d %s %d", description,
-                               start_value, time_active, img_fname, fsize);
-
-        int file_to_send;
-        if ((file_to_send = open(img_fname, O_RDONLY)) < 0) return -1;
-        remaining = fsize;
-        tcp_open();
-        tcp_talk(msg, TRIM);  // send text before file
-        while (remaining > 0) {
-            read(file_to_send, msg, BUF_SIZE);
-            tcp_talk(msg, NO_TRIM);
-            remaining -= BUF_SIZE;
-        }
-        tcp_talk(" \n", NO_TRIM);
-        tcp_close();
-
-    } else if (!strcmp(temp, "close")) {
-        if (sscanf(buffer2, "close %s", aid) != 1) return -1;
-
-        sprintf(msg, "CLS %s %s %s\n", uid, password, aid);
-        tcp(msg);
-        listener_RCL();
-    } else if (!strcmp(temp, "show_asset") || !strcmp(temp, "sa")) {
-        if (sscanf(buffer2 + strlen(temp + 1), "%s", aid) != 2) return -1;
-        sprintf(msg, "SAS %s\n", aid);
-        tcp(msg);
-        listener_ROA();
-    } else if (!strcmp(temp, "bid")) {
-        // TODO
-    }
-
-    return 0;
-}
-
-int udp(char *msg) {
-    // UDP socket
-    fd = socket(AF_INET, SOCK_DGRAM, 0);
-
-    if (fd == -1) /*error*/
-        exit(1);
-    memset(&hints, 0, sizeof hints);
-    hints.ai_family = AF_INET;
-    hints.ai_socktype = SOCK_DGRAM;
-    // IPv4
-    // UDP socket
-    errcode = getaddrinfo(asip, asport, &hints, &res);
-    if (errcode != 0) /*error*/
-        exit(1);
-
-    n = sendto(fd, msg, strlen(msg) + 1, 0, res->ai_addr, res->ai_addrlen);
-    if (n == -1) /*error*/
-        exit(1);
-    addrlen = sizeof(addr);
-    if (DEBUG) printf("Sent message: %s\n",buffer);
-
-    memset(buffer, 0, BUF_SIZE);
-    n = recvfrom(fd, buffer, BUF_SIZE, 0, (struct sockaddr *)&addr, &addrlen);
-    if (n == -1) /*error*/
-        exit(1);
-
-    write(1, "echo: ", 6);
-    write(1, buffer, n);
-
-    freeaddrinfo(res);
-    close(fd);
-
-    return 0;
-}
-
 int main(int argc, char **argv) {
     if (argc > 1) {
         for (int i = 1; i < argc && i < 5; i += 2) {
@@ -264,11 +242,7 @@ int main(int argc, char **argv) {
 
     while (1) {
         // read message from terminal
-        fgets(buffer, BUF_SIZE, stdin);
         memset(msg, 0, BUF_SIZE);
-        strncpy(msg,buffer,BUF_SIZE-1);
-        //parse_msg(buffer, msg);
-
-        udp(msg);
+        parse_msg(msg);
     }
 }
