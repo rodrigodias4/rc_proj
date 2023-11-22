@@ -20,47 +20,40 @@ char asport[8] = "58051";  // 58000 + group number (51)
 // tejo ip: 193.136.138.142
 // 58011 : server
 // 58001 : echo
-char *uid;
-char *password;
+char uid[BUF_SIZE];
+char password[BUF_SIZE];
+char aid[BUF_SIZE];
 
-void parse_msg(char *buffer, char *msg) {
-    char *temp;
+void parse_msg(char *msg) {
+    char temp[BUF_SIZE];
 
     // command
-    temp = strtok(buffer, " ");
+    scanf("%s", temp);
     if (!strcmp(temp, "login")) {
-        strcat(msg, "LIN");
-        uid = strtok(NULL, " ");
-        strcat(msg, " ");
-        strcat(msg, uid);
-        password = strtok(NULL, " ");
-        strcat(msg, " ");
-        strcat(msg, password);   
+        scanf("%s %s", uid, password);
+        sprintf(msg, "LIN %s %s", uid, password);
     }
+    
     else if (!strcmp(temp, "logout")) {
-        strcat(msg, "LOU");
-        strcat(msg, " ");
-        strcat(msg, uid);
-        strcat(msg, " ");
-        strcat(msg, password);   
+        sprintf(msg, "LOU %s %s", uid, password);
     }
-    else if (!strcmp(temp, "unregister")) {
-        strcat(msg, "UNR");
-        strcat(msg, " ");
-        strcat(msg, uid);
-        strcat(msg, " ");
-        strcat(msg, password);   
+    else if (!strcmp(temp, "unregister")) { 
+        sprintf(msg, "UNR %s %s", uid, password);
     }
     else if (!strcmp(temp, "myauctions") || !strcmp(temp, "ma")) {
-        strcat(msg, "LMA");
-        strcat(msg, " ");
-        strcat(msg, uid);  
+        sprintf(msg, "LMA %s", uid);
     }
     else if (!strcmp(temp, "mybids") || !strcmp(temp, "mb")) {
-        strcat(msg, "LMB");
-        strcat(msg, " ");
-        strcat(msg, uid);  
+        sprintf(msg, "LMB %s", uid); 
     }
+    else if (!strcmp(temp, "list") || !strcmp(temp, "l")) {
+        sprintf(msg, "LST"); 
+    }
+    else if (!strcmp(temp, "show_record") || !strcmp(temp, "sr")) {
+        scanf("%s", aid);
+        sprintf(msg, "SRC %s", aid);    
+    }
+    
     strcat(msg, "\n");
 }
 
@@ -155,16 +148,12 @@ int main(int argc, char **argv) {
             }
         }
     }
-    printf("ip: %s\n", asip);
-    printf("port: %s\n", asport);
-    return 0;
+
 
     while (1) {
         // read message from terminal
-        fgets(buffer, BUF_SIZE, stdin);
         memset(msg, 0, BUF_SIZE);
-        parse_msg(buffer, msg);
-        printf("%s\n", msg);
+        parse_msg(msg);
 
         udp(msg);
     }
