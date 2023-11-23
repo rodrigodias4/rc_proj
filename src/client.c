@@ -121,14 +121,14 @@ int tcp_talk(char *msg, int trim) {
     }
 
     /* Lê 128 Bytes do servidor e guarda-os no buffer. */
-    n = read(fd, buf_tcp, 128);
+    /* n = read(fd, buf_tcp, 128);
     if (n == -1) {
         exit(1);
-    }
+    } */
 
     /* Imprime a mensagem "echo" e o conteúdo do buffer (ou seja, o que foi
     recebido do servidor) para o STDOUT (fd = 1) */
-    printf("echo: %s\n", buf_tcp);
+    /* printf("echo: %s\n", buf_tcp); */
     return 0;
 }
 
@@ -234,7 +234,9 @@ int parse_msg_tcp(char *buffer, char *msg) {
         tcp_open();
         tcp_talk(msg, TRIM);  // send text before file
         while (remaining > 0) {
+            printf("open: Sending file %s | %d bytes remaining \n",img_fname, remaining);
             read(file_to_send, msg, BUF_SIZE);
+
             tcp_talk(msg, NO_TRIM);
             remaining -= BUF_SIZE;
         }
