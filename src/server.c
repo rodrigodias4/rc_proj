@@ -89,17 +89,17 @@ int handle_udp() {
     // TODO: INTERPRETAR MENSAGENS DO CLIENTE
     sscanf(buffer, "%s ", temp);
     if (!strcmp(temp, "LIN")) {
-        //login
-        if (sscanf(buffer, "LIN %s %s",uid, password) == 2)
+        // login
+        if (sscanf(buffer, "LIN %s %s", uid, password) == 2)
             login_user(uid, password);
     } else if (!strcmp(temp, "LOU")) {
-        //login
-        if (sscanf(buffer, "LOU %s %s",uid, password) == 2)
+        // login
+        if (sscanf(buffer, "LOU %s %s", uid, password) == 2)
             logout_user(uid, password);
     }
 
     /* Faz 'echo' da mensagem recebida para o STDOUT do servidor */
-    printf("UDP | Received message | %s\n", buffer);
+    printf("UDP | Received message | %d bytes | %s\n", n, buffer);
 
     /* Envia a mensagem recebida (atualmente presente no buffer) para o
      * endereço 'addr' de onde foram recebidos dados */
@@ -119,7 +119,7 @@ int handle_tcp(int fd) {
     }
 
     /* Faz 'echo' da mensagem recebida para o STDOUT do servidor */
-    printf("TCP | fd:%d\t| Received %s\n", fd, buffer);
+    printf("TCP | fd:%d\t| Received %zd bytes | %s\n", fd, n, buffer);
     sscanf(buffer, "%s ", temp);
 
     /* Envia a mensagem recebida (atualmente presente no buffer) para a

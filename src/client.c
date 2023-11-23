@@ -128,7 +128,7 @@ int tcp_talk(char *msg, int trim) {
 
     /* Imprime a mensagem "echo" e o conteúdo do buffer (ou seja, o que foi
     recebido do servidor) para o STDOUT (fd = 1) */
-    printf("echo: %s\n",buf_tcp);
+    printf("echo: %s\n", buf_tcp);
     return 0;
 }
 
@@ -176,8 +176,7 @@ int parse_msg_udp(char *buffer, char *msg) {
     // command
     sscanf(buffer, "%s ", temp);
     if (!strcmp(temp, "login")) {
-        if (sscanf(buffer, "login %s %s", uid, password) != 2)
-            return -1;
+        if (sscanf(buffer, "login %s %s", uid, password) != 2) return -1;
         sprintf(msg, "LIN %s %s", uid, password);
     } else if (!strcmp(temp, "logout")) {
         if (!has_uid_pwd()) {
@@ -195,8 +194,7 @@ int parse_msg_udp(char *buffer, char *msg) {
     } else if (!strcmp(temp, "list") || !strcmp(temp, "l")) {
         sprintf(msg, "LST");
     } else if (!strcmp(temp, "show_record") || !strcmp(temp, "sr")) {
-        if (sscanf(buffer + strlen(temp) + 1, "%s", aid) != 1)
-            return -1;
+        if (sscanf(buffer + strlen(temp) + 1, "%s", aid) != 1) return -1;
         sprintf(msg, "SRC %s", aid);
     } else {
         return 0;  // input does not correspond to any of the above
@@ -215,11 +213,15 @@ int parse_msg_tcp(char *buffer, char *msg) {
         int time_active, fsize, remaining;
         char description[BUF_SIZE], img_fname[BUF_SIZE];
         if (sscanf(buffer, "open %s %s %f %d", description, img_fname,
-                   &start_value, &time_active) != 4)
+                   &start_value, &time_active) != 4) {
+            puts("open: Invalid arguments");
             return -1;
+        }
 
-        if (!strlen(uid) || !strlen(password)) return -1;
-
+        if (!strlen(uid) || !strlen(password)) {
+            printf("open: Not logged in.\n");
+            return -1;
+        }
         fsize = get_file_size(img_fname);
         if (fsize < 0) return -1;
 
@@ -252,9 +254,11 @@ int parse_msg_tcp(char *buffer, char *msg) {
         listener_ROA();
     } else if (!strcmp(temp, "bid")) {
         // TODO
+    } else {
+        return 0;
     }
 
-    return 0;
+    return 1;
 }
 
 int parse_msg(char *msg) {
@@ -297,8 +301,7 @@ int main(int argc, char **argv) {
     while (1) {
         // read message from terminal
         memset(msg, 0, BUF_SIZE);
-        if (parse_msg(msg) == -1)
-            puts("Invalid input.");
+        if (parse_msg(msg) == -1) puts("Invalid input.");
         fflush(stdout);
     }
 }
