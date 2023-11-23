@@ -119,13 +119,13 @@ int tcp_talk(char *msg, int trim) {
     if (n == -1) {
         exit(1);
     }
-puts("B");
+
     /* Lê 128 Bytes do servidor e guarda-os no buffer. */
     n = read(fd, buf_tcp, 128);
     if (n == -1) {
         exit(1);
     }
-puts("C");
+
     /* Imprime a mensagem "echo" e o conteúdo do buffer (ou seja, o que foi
     recebido do servidor) para o STDOUT (fd = 1) */
     printf("echo: %s\n",buf_tcp);

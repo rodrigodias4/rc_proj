@@ -19,6 +19,18 @@ struct addrinfo hints_udp, hints_tcp, *res_udp, *res_tcp;
 struct sockaddr_in addr;
 char buffer[128];
 
+/* Funções de comandos */
+int login_user(char *uid, char *password) {
+    // TODO
+    printf("Logging in | UID: %s | Password %s\n", uid, password);
+    return 0;
+}
+int logout_user(char *uid, char *password) {
+    // TODO
+    printf("Logging out | UID: %s | Password %s\n", uid, password);
+    return 0;
+}
+
 int init_udp() {
     fd_udp = socket(AF_INET, SOCK_DGRAM, 0);
     if (fd_udp == -1) {
@@ -65,6 +77,8 @@ int init_tcp() {
 int handle_udp() {
     int n;
     addrlen = sizeof(addr);
+    char temp[128];
+    char uid[32], password[32];
     /* Lê da socket (fd_udp) 128 bytes e guarda-os no buffer.
     Existem flags opcionais que não são passadas (0).
     O endereço do cliente (e o seu tamanho) são guardados para mais tarde
@@ -73,6 +87,16 @@ int handle_udp() {
     if (n == -1) return -1;
 
     // TODO: INTERPRETAR MENSAGENS DO CLIENTE
+    sscanf(buffer, "%s ", temp);
+    if (!strcmp(temp, "LIN")) {
+        //login
+        if (sscanf(buffer, "LIN %s %s",uid, password) == 2)
+            login_user(uid, password);
+    } else if (!strcmp(temp, "LOU")) {
+        //login
+        if (sscanf(buffer, "LOU %s %s",uid, password) == 2)
+            logout_user(uid, password);
+    }
 
     /* Faz 'echo' da mensagem recebida para o STDOUT do servidor */
     printf("UDP | Received message | %s\n", buffer);
@@ -85,6 +109,7 @@ int handle_udp() {
 }
 
 int handle_tcp(int fd) {
+    char temp[128];
     /* Já conectado, o cliente então escreve algo para a sua socket.
     Esses dados são lidos para o buffer. */
     n = read(fd, buffer, 128);
@@ -95,8 +120,7 @@ int handle_tcp(int fd) {
 
     /* Faz 'echo' da mensagem recebida para o STDOUT do servidor */
     printf("TCP | fd:%d\t| Received %s\n", fd, buffer);
-
-    // TODO: INTERPRETAR MENSAGENS DO CLIENTE
+    sscanf(buffer, "%s ", temp);
 
     /* Envia a mensagem recebida (atualmente presente no buffer) para a
      * socket */
