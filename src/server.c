@@ -11,23 +11,147 @@
 
 #define DEBUG 1
 #define PORT "58051"
+#define BUF_SIZE 128
+#define MAX_USERS 100
+#define LOGOUT 0
+#define UNREGISTER 1
 
 int fd_udp, fd_tcp;
 ssize_t n;
 socklen_t addrlen;
 struct addrinfo hints_udp, hints_tcp, *res_udp, *res_tcp;
 struct sockaddr_in addr;
-char buffer[128];
+char buffer[BUF_SIZE];
+char msg[BUF_SIZE];
+
+struct User {
+    int UID;
+    char password[9];  // 8 characters + null terminator
+};
+
+struct User registered_users[MAX_USERS];  // Array to store user data
+struct User logged_users[MAX_USERS];  // Array to store user data
+int RegisteredNumUsers = 0;  // Number of users currently registered
+int LoggedNumUsers = 0;  // Number of users currently logged in
+
+void LoginUser(int userID, const char *password) {
+    if (LoggedNumUsers < MAX_USERS) {
+        logged_users[LoggedNumUsers].UID = userID;
+        strcpy(logged_users[LoggedNumUsers].password, password);
+        LoggedNumUsers++;
+        printf("User logged in successfully.\n");
+    } else {
+        printf("Cannot add more users. Maximum limit reached.\n");
+    }
+}
+
+
+void LogoutUser(int pos) {
+    
+    // Move the last user to the position of the removed user
+    logged_users[pos] = logged_users[LoggedNumUsers - 1];
+    logged_users[LoggedNumUsers - 1].UID = 0;
+    strcpy(logged_users[LoggedNumUsers - 1].password,"");
+    LoggedNumUsers--;
+}
+
+void RegisterUser(int userID, const char *password) {
+    if (RegisteredNumUsers < MAX_USERS) {
+        registered_users[RegisteredNumUsers].UID = userID;
+        strcpy(registered_users[RegisteredNumUsers].password, password);
+        RegisteredNumUsers++;
+        LoginUser(userID,password);
+        printf("User registered successfully.\n");
+    } else {
+        printf("Cannot register more users. Maximum limit reached.\n");
+    }
+}
+
+void UnregisterUser(int pos) {
+    
+    // Move the last user to the position of the removed user
+    registered_users[pos] = registered_users[RegisteredNumUsers - 1];
+    registered_users[RegisteredNumUsers - 1].UID = 0;
+    strcpy(registered_users[RegisteredNumUsers - 1].password,"");
+    RegisteredNumUsers--;
+}
+
+/*
+void LogoutUser(int userID) {
+    int i, registered = 0;
+
+    for (i = 0; i < RegisteredNumUsers; i++) {
+        if (registered_users[i].UID == userID) {
+            registered = 1;
+            break;
+        }
+    }
+
+    if (registered) {
+        // Move the last user to the position of the removed user
+        registered_users[i] = registered_users[RegisteredNumUsers - 1];
+        RegisteredNumUsers--;
+        registered_users[RegisteredNumUsers - 1].UID = 0;
+        strcpy(registered_users[RegisteredNumUsers - 1].password,"");
+        printf("User with ID %d removed successfully.\n", userID);
+    } else {
+        printf("User with ID %d not found.\n", userID);
+    }
+}
+
+*/
 
 /* Funções de comandos */
-int login_user(char *uid, char *password) {
-    // TODO
-    printf("Logging in | UID: %s | Password %s\n", uid, password);
+int login_user(int uid, char *password,char *msg) {
+    for (int i = 0; i < RegisteredNumUsers; i++) {
+        if (registered_users[i].UID == uid) {
+            if (strcmp(registered_users[i].password,password) == 0) {
+                sprintf(msg, "RLI OK\n");
+                LoginUser(uid,password);
+                return 0;
+            }
+            else sprintf(msg, "RLI NOK\n");
+            return 0;
+        }
+    }
+    RegisterUser(uid,password);
+    sprintf(msg, "RLI REG\n");
     return 0;
 }
-int logout_user(char *uid, char *password) {
-    // TODO
-    printf("Logging out | UID: %s | Password %s\n", uid, password);
+int unregister_logout_user(int uid,char *msg,int type) {
+    for (int i = 0; i < RegisteredNumUsers; i++) {
+        if (registered_users[i].UID == uid) {
+            for (int j = 0; j < LoggedNumUsers; j++) {
+                if (logged_users[j].UID == uid) {
+                    if (type==LOGOUT) {
+                        sprintf(msg, "RLO OK\n");
+                        LogoutUser(j);
+                        return 0;  
+                    }
+                    else {
+                        sprintf(msg, "RUR OK\n");
+                        LogoutUser(j);
+                        UnregisterUser(i);
+                        return 0;  
+                    }  
+                }
+            }
+            if (type==LOGOUT) {
+                sprintf(msg, "RLO NOK\n");
+                return 0;
+            }
+            else {
+                sprintf(msg, "RUR NOK\n");
+                return 0;
+            }  
+        }
+    }
+    if (type==LOGOUT) {
+        sprintf(msg, "RLO UNR\n");
+    }
+    else {
+        sprintf(msg, "RUR UNR\n");
+    }
     return 0;
 }
 
@@ -78,7 +202,8 @@ int handle_udp() {
     int n;
     addrlen = sizeof(addr);
     char temp[128];
-    char uid[32], password[32];
+    int uid;
+    char password[9];
     /* Lê da socket (fd_udp) 128 bytes e guarda-os no buffer.
     Existem flags opcionais que não são passadas (0).
     O endereço do cliente (e o seu tamanho) são guardados para mais tarde
@@ -90,20 +215,30 @@ int handle_udp() {
     sscanf(buffer, "%s ", temp);
     if (!strcmp(temp, "LIN")) {
         // login
-        if (sscanf(buffer, "LIN %s %s", uid, password) == 2)
-            login_user(uid, password);
-    } else if (!strcmp(temp, "LOU")) {
-        // login
-        if (sscanf(buffer, "LOU %s %s", uid, password) == 2)
-            logout_user(uid, password);
+        if (sscanf(buffer, "LIN %d %s", &uid, password) == 2)
+            login_user(uid, password,msg);
+    } 
+    else if (!strcmp(temp, "LOU")) {
+        // logout
+        if (sscanf(buffer, "LOU %d %s", &uid, password) == 2)
+            unregister_logout_user(uid, msg,LOGOUT);
     }
 
-    /* Faz 'echo' da mensagem recebida para o STDOUT do servidor */
-    printf("UDP | Received message | %d bytes | %s\n", n, buffer);
+    else if (!strcmp(temp, "UNR")) {
+        // logout
+        if (sscanf(buffer, "UNR %d %s", &uid, password) == 2)
+            unregister_logout_user(uid, msg,UNREGISTER);
+    }
+
+     /* Faz 'echo' da mensagem recebida para o STDOUT do servidor 
+        printf("UDP | Received message | %d bytes | %s\n", n, buffer);
+     */
+     
+
 
     /* Envia a mensagem recebida (atualmente presente no buffer) para o
      * endereço 'addr' de onde foram recebidos dados */
-    n = sendto(fd_udp, buffer, n, 0, (struct sockaddr *)&addr, addrlen);
+    n = sendto(fd_udp, msg, strlen(msg) + 1, 0, (struct sockaddr *)&addr, addrlen);
     if (n == -1) return -1;
     return 0;
 }
@@ -168,6 +303,8 @@ int main() {
         handle_tcp(fd_new); */
     /* Loop para receber bytes e processá-los */
     while (1) {
+        printf("REINICIA MSG\n");
+        memset(msg, 0, BUF_SIZE);
         fds_ready = fds;
         if (select(max_fd + 1, &fds_ready, NULL, NULL, NULL) < 0) return -1;
         for (int i = 0; i <= max_fd; i++) {

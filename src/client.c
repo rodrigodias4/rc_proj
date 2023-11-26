@@ -14,6 +14,7 @@
 #define TCP_BUF_SIZE 1024
 #define TRIM 1
 #define NO_TRIM 0
+#define PASSWORD_SIZE 8
 int fd, errcode;
 ssize_t n;
 socklen_t addrlen;
@@ -25,8 +26,8 @@ char asport[8] = "58051";  // 58000 + group number (51)
 // tejo ip: 193.136.138.142
 // 58011 : server
 // 58001 : echo
-char uid[BUF_SIZE] = "";
-char password[BUF_SIZE] = "";
+int uid=0;
+char password[PASSWORD_SIZE+1] = "";
 char aid[BUF_SIZE] = "";
 
 long get_file_size(char *filename) {
@@ -39,7 +40,21 @@ long get_file_size(char *filename) {
 }
 
 /** Checks if the program has user UID and password (user has to login) */
-int has_uid_pwd() { return strcmp(uid, "") && strcmp(password, ""); }
+int has_uid_pwd() { return uid!=0 && strcmp(password, "")!=0; }
+
+int input_verified(int uid, char *password) {
+    // Count the number of digits in the entered number
+    int count_digits = 0;
+    int temp = uid; // Temporary variable to store the number
+
+    while (temp != 0) {
+        temp /= 10;
+        ++count_digits;
+    }
+
+    if(count_digits==6 && strlen(password) == 8) return 1;
+    else return 0;
+}
 
 int udp(char *msg) {
     char buf_udp[BUF_SIZE];
@@ -67,7 +82,7 @@ int udp(char *msg) {
     if (n == -1) /*error*/
         exit(1);
 
-    write(1, "echo: ", 6);
+    write(1, "server_output: ", 16);
     write(1, buf_udp, n);
 
     freeaddrinfo(res);
@@ -173,24 +188,35 @@ int listener_RBD() {
 
 int parse_msg_udp(char *buffer, char *msg) {
     char temp[BUF_SIZE];
+    int uid_test;
+    char password_test[PASSWORD_SIZE];
     // command
     sscanf(buffer, "%s ", temp);
     if (!strcmp(temp, "login")) {
-        if (sscanf(buffer, "login %s %s", uid, password) != 2) return -1;
-        sprintf(msg, "LIN %s %s", uid, password);
-    } else if (!strcmp(temp, "logout")) {
-        if (!has_uid_pwd()) {
-            printf(
-                "UID and password not found locally. Try logging in first.\n");
+        if (has_uid_pwd()) {
+            printf("Try logging out first.\n");
             return -1;
         }
-        sprintf(msg, "LOU %s %s", uid, password);
+        if (sscanf(buffer, "login %d %s", &uid_test, password_test) != 2) return -1;
+        if (!input_verified(uid_test,password_test)) return -1;
+        uid = uid_test;
+        strcpy(password,password_test);
+        sprintf(msg, "LIN %d %s", uid, password);
+    } 
+    else if (!strcmp(temp, "logout")) {
+        if (!has_uid_pwd()) {
+            printf("UID and password not found locally. Try logging in first.\n");
+            return -1;
+        }
+        sprintf(msg, "LOU %d %s", uid, password);
+        uid=0;
+        strcpy(password,"");
     } else if (!strcmp(temp, "unregister")) {
-        sprintf(msg, "UNR %s %s", uid, password);
+        sprintf(msg, "UNR %d %s", uid, password);
     } else if (!strcmp(temp, "myauctions") || !strcmp(temp, "ma")) {
-        sprintf(msg, "LMA %s", uid);
+        sprintf(msg, "LMA %d", uid);
     } else if (!strcmp(temp, "mybids") || !strcmp(temp, "mb")) {
-        sprintf(msg, "LMB %s", uid);
+        sprintf(msg, "LMB %d", uid);
     } else if (!strcmp(temp, "list") || !strcmp(temp, "l")) {
         sprintf(msg, "LST");
     } else if (!strcmp(temp, "show_record") || !strcmp(temp, "sr")) {
@@ -218,10 +244,11 @@ int parse_msg_tcp(char *buffer, char *msg) {
             return -1;
         }
 
-        if (!strlen(uid) || !strlen(password)) {
+        /*if (!strlen(uid) || !strlen(password)) {
             printf("open: Not logged in.\n");
             return -1;
-        }
+        }*/
+
         fsize = get_file_size(img_fname);
         if (fsize < 0) return -1;
 
@@ -246,7 +273,7 @@ int parse_msg_tcp(char *buffer, char *msg) {
     } else if (!strcmp(temp, "close")) {
         if (sscanf(buffer, "close %s", aid) != 1) return -1;
 
-        sprintf(msg, "CLS %s %s %s\n", uid, password, aid);
+        sprintf(msg, "CLS %d %s %s\n", uid, password, aid);
         tcp(msg);
         listener_RCL();
     } else if (!strcmp(temp, "show_asset") || !strcmp(temp, "sa")) {
