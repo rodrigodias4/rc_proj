@@ -212,8 +212,18 @@ int parse_msg_udp(char *buffer, char *msg) {
         uid=0;
         strcpy(password,"");
     } else if (!strcmp(temp, "unregister")) {
+        if (!has_uid_pwd()) {
+            printf("UID and password not found locally. Try logging in first.\n");
+            return -1;
+        }
         sprintf(msg, "UNR %d %s", uid, password);
+        uid=0;
+        strcpy(password,"");
     } else if (!strcmp(temp, "myauctions") || !strcmp(temp, "ma")) {
+        if (!has_uid_pwd()) {
+            printf("UID and password not found locally. Try logging in first.\n");
+            return -1;
+        }
         sprintf(msg, "LMA %d", uid);
     } else if (!strcmp(temp, "mybids") || !strcmp(temp, "mb")) {
         sprintf(msg, "LMB %d", uid);
@@ -290,10 +300,33 @@ int parse_msg_tcp(char *buffer, char *msg) {
     return 1;
 }
 
+int check_exit(char *buffer) {
+    char temp[BUF_SIZE];
+    sscanf(buffer, "%s ", temp);
+    if (!strcmp(temp,"exit")) {
+        if (has_uid_pwd()) {
+            printf("Try logging out first.\n");
+            return -1;
+        }
+        else {
+            return 1;
+        }
+    }
+
+    return 0;
+
+}
+
 int parse_msg(char *msg) {
     char buffer[BUF_SIZE];
     int res;
     if (fgets(buffer, BUFSIZ - 1, stdin) == NULL) return -1;
+
+    res = check_exit(buffer);
+    if (res == -1) return -1;          // error
+    if (res == 1) {                    // input corresponds to udp command
+        return 1;
+    }
 
     res = parse_msg_udp(buffer, msg);  // check udp commands
     if (res == -1) return -1;          // error
@@ -330,7 +363,15 @@ int main(int argc, char **argv) {
     while (1) {
         // read message from terminal
         memset(msg, 0, BUF_SIZE);
-        if (parse_msg(msg) == -1) puts("Invalid input.");
+        int res;
+        res = parse_msg(msg);
+        if (res == -1) {
+            puts("Invalid input.");
+        }
+        else if (res ==  1) {
+            puts("Application terminated.");
+            break;
+        }
         fflush(stdout);
     }
 }

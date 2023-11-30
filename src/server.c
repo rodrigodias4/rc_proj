@@ -13,6 +13,8 @@
 #define PORT "58051"
 #define BUF_SIZE 128
 #define MAX_USERS 100
+#define MAX_AUCTIONS 100
+#define MAX_BIDS 100
 #define LOGOUT 0
 #define UNREGISTER 1
 
@@ -29,10 +31,30 @@ struct User {
     char password[9];  // 8 characters + null terminator
 };
 
+struct Auction {
+    struct User user;
+    char* image;
+    char description[11];
+    int value;
+    int duration;
+    int AID;
+    int state;       // active = 1 , otherwise = 0
+};
+
+struct Bid {
+    struct User user;
+    struct Auction auction;
+    int value;
+};
+
 struct User registered_users[MAX_USERS];  // Array to store user data
 struct User logged_users[MAX_USERS];  // Array to store user data
+struct Auction auctions[MAX_AUCTIONS];
+struct Bid bids[MAX_BIDS];
 int RegisteredNumUsers = 0;  // Number of users currently registered
 int LoggedNumUsers = 0;  // Number of users currently logged in
+int NumAuctions = 0;
+int NumBids = 0;
 
 void LoginUser(int userID, const char *password) {
     if (LoggedNumUsers < MAX_USERS) {
@@ -155,6 +177,81 @@ int unregister_logout_user(int uid,char *msg,int type) {
     return 0;
 }
 
+int user_auctions(int uid,char *msg) {
+    int logged = 0;
+    int first_auction = 1;
+    for (int j = 0; j < LoggedNumUsers; j++) {
+        if (logged_users[j].UID == uid) {
+            logged=1;
+            break;
+        }
+    }
+    for (int i = 0; i < NumAuctions; i++) {
+        if (auctions[i].user.UID == uid) {
+            if (logged==0) {
+                sprintf(msg, "RMA NLG\n");
+                return 0;
+            }
+            else if (first_auction) {
+                sprintf(msg, "RMA OK");
+                first_auction = 0;
+            }
+            sprintf(msg + strlen(msg) + 1, "%d %d",auctions[i].AID,auctions[i].state);
+        }
+    }
+    if (!first_auction) {
+        strcat(msg, "\n");
+    }
+    else {
+        sprintf(msg, "RMA NOK\n");
+    }
+    return 0;
+}
+
+int user_bids(int uid,char *msg) {
+    int logged = 0;
+    int first_bid = 1;
+    for (int j = 0; j < LoggedNumUsers; j++) {
+        if (logged_users[j].UID == uid) {
+            logged=1;
+            break;
+        }
+    }
+    for (int i = 0; i < NumBids; i++) {
+        if (bids[i].user.UID == uid) {
+            if (logged==0) {
+                sprintf(msg, "RMB NLG\n");
+                return 0;
+            }
+            else if (first_bid) {
+                sprintf(msg, "RMB OK");
+                first_bid = 0;
+            }
+            sprintf(msg + strlen(msg) + 1, "%d %d",bids[i].auction.AID,bids[i].auction.state);
+        }
+    }
+    if (!first_bid) {
+        strcat(msg, "\n");
+    }
+    else {
+        sprintf(msg, "RMB NOK\n");
+    }
+    return 0;
+}
+
+int list(char *msg) {
+    if (NumAuctions == 0) {
+        sprintf(msg, "RLS NOK\n");
+        return 0;
+    }
+    sprintf(msg, "RLS OK");
+    for (int i = 0; i < NumAuctions; i++) {
+        sprintf(msg + strlen(msg) + 1, "%d %d",auctions[i].AID,auctions[i].state);
+    }
+    strcat(msg, "\n");
+    return 0;
+}
+
 int init_udp() {
     fd_udp = socket(AF_INET, SOCK_DGRAM, 0);
     if (fd_udp == -1) {
@@ -225,10 +322,32 @@ int handle_udp() {
     }
 
     else if (!strcmp(temp, "UNR")) {
-        // logout
+        // unregister
         if (sscanf(buffer, "UNR %d %s", &uid, password) == 2)
             unregister_logout_user(uid, msg,UNREGISTER);
     }
+
+    else if (!strcmp(temp, "LMA")) {
+        // myauctions
+        if (sscanf(buffer, "UNR %d", &uid) == 1)
+            user_auctions(uid,msg);
+    }
+
+    else if (!strcmp(temp, "LMB")) {
+        // mybids
+        if (sscanf(buffer, "UNR %d", &uid) == 1)
+            user_bids(uid,msg);
+    }
+
+    else if (!strcmp(temp, "LST")) {
+        list(msg);
+    }
+
+    else if (!strcmp(temp, "SRC")) {
+        // show_record
+    }
+
+
 
      /* Faz 'echo' da mensagem recebida para o STDOUT do servidor 
         printf("UDP | Received message | %d bytes | %s\n", n, buffer);
@@ -238,6 +357,7 @@ int handle_udp() {
 
     /* Envia a mensagem recebida (atualmente presente no buffer) para o
      * endereço 'addr' de onde foram recebidos dados */
+    printf("SERVER MSG: %s",msg);
     n = sendto(fd_udp, msg, strlen(msg) + 1, 0, (struct sockaddr *)&addr, addrlen);
     if (n == -1) return -1;
     return 0;
