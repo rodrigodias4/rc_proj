@@ -25,7 +25,7 @@ struct addrinfo hints_udp, hints_tcp, *res_udp, *res_tcp;
 struct sockaddr_in addr;
 char buffer[BUF_SIZE];
 char msg[1024];
-char proj_path[28] = "/home/david/RC/rc_proj/src";  // change this
+char proj_path[28] = "";  // change this
 
 long get_file_size(char *filename) {
     struct stat file_status;
@@ -343,6 +343,7 @@ int handle_udp() {
                  &addrlen);
     if (n == -1) return -1;
 
+    if (DEBUG) printf("UDP | Received %zd bytes | %s\n", n, buffer);
     // TODO: INTERPRETAR MENSAGENS DO CLIENTE
     sscanf(buffer, "%s ", temp);
     if (!strcmp(temp, "LIN")) {
@@ -551,6 +552,7 @@ int accept_tcp() {
 
 int main() {
     int fd_new, max_fd = 0;
+    getcwd(proj_path, 1024);
 
     CreateInitialDirs();
     init_udp();
