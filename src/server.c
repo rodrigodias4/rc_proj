@@ -10,15 +10,13 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <sys/stat.h>
+#include <dirent.h>
+#include <errno.h>
 
 #define DEBUG 1
 #define PORT "58051"
 #define BUF_SIZE 128
-#define MAX_USERS 100
-#define MAX_AUCTIONS 100
-#define MAX_BIDS 100
-#define LOGOUT 0
-#define UNREGISTER 1
 
 int fd_udp, fd_tcp;
 ssize_t n;
@@ -26,37 +24,8 @@ socklen_t addrlen;
 struct addrinfo hints_udp, hints_tcp, *res_udp, *res_tcp;
 struct sockaddr_in addr;
 char buffer[BUF_SIZE];
-char msg[BUF_SIZE];
-
-struct User {
-    int UID;
-    char password[9];  // 8 characters + null terminator
-};
-
-struct Auction {
-    struct User user;
-    char *image;
-    char description[11];
-    int value;
-    int duration;
-    int AID;
-    int state;  // active = 1 , otherwise = 0
-};
-
-struct Bid {
-    struct User user;
-    struct Auction auction;
-    int value;
-};
-
-struct User registered_users[MAX_USERS];  // Array to store user data
-struct User logged_users[MAX_USERS];      // Array to store user data
-struct Auction auctions[MAX_AUCTIONS];
-struct Bid bids[MAX_BIDS];
-int RegisteredNumUsers = 0;  // Number of users currently registered
-int LoggedNumUsers = 0;      // Number of users currently logged in
-int NumAuctions = 0;
-int NumBids = 0;
+char msg[1024];
+char proj_path[28] = "/home/david/RC/rc_proj/src";  // change this
 
 long get_file_size(char *filename) {
     struct stat file_status;
@@ -67,192 +36,275 @@ long get_file_size(char *filename) {
     return file_status.st_size;
 }
 
-void LoginUser(int userID, const char *password) {
-    if (LoggedNumUsers < MAX_USERS) {
-        logged_users[LoggedNumUsers].UID = userID;
-        strcpy(logged_users[LoggedNumUsers].password, password);
-        LoggedNumUsers++;
-        printf("User logged in successfully.\n");
+int CreateInitialDirs() {
+    int ret;
+    ret = mkdir("USERS",0700);
+    if(ret==-1)
+        return -1;
+    ret = mkdir("AUCTIONS",0700);
+    if(ret==-1) {
+        return -1;
+    }
+    return 0;
+}
+
+int create_file(char* path,char* content) {
+    // argument content = "" (empty file)
+    FILE *fp;
+    fp = fopen(path,"w");
+    if (fp==NULL) {
+        return -1;
+    }
+    if (strcmp(content,"")!=0) {
+        fprintf(fp,"%s",content);
+    }
+    fclose(fp);
+    return 0;
+}
+int isDirectoryExists(const char *path) {
+    /* DIR *dir = opendir(path);
+    if (dir != NULL) {
+        closedir(dir);
+        return 1;
     } else {
-        printf("Cannot add more users. Maximum limit reached.\n");
+        return 0;
+    } */
+    DIR* dir = opendir(path);
+    if (dir) {
+        /* Directory exists. */
+        closedir(dir);
+        return 1;
+    } 
+    else if (ENOENT == errno) {
+        /* Directory does not exist. */
+        return 0;
+    } 
+    else {
+        /* opendir() failed for some other reason. */
+        return -1;
     }
 }
 
-void LogoutUser(int pos) {
-    // Move the last user to the position of the removed user
-    logged_users[pos] = logged_users[LoggedNumUsers - 1];
-    logged_users[LoggedNumUsers - 1].UID = 0;
-    strcpy(logged_users[LoggedNumUsers - 1].password, "");
-    LoggedNumUsers--;
-}
-
-void RegisterUser(int userID, const char *password) {
-    if (RegisteredNumUsers < MAX_USERS) {
-        registered_users[RegisteredNumUsers].UID = userID;
-        strcpy(registered_users[RegisteredNumUsers].password, password);
-        RegisteredNumUsers++;
-        LoginUser(userID, password);
-        printf("User registered successfully.\n");
-    } else {
-        printf("Cannot register more users. Maximum limit reached.\n");
+int isFileExists(const char *filename) {
+    if (access(filename, F_OK) != -1) {
+        return 1;
     }
+    return 0;
 }
 
-void UnregisterUser(int pos) {
-    // Move the last user to the position of the removed user
-    registered_users[pos] = registered_users[RegisteredNumUsers - 1];
-    registered_users[RegisteredNumUsers - 1].UID = 0;
-    strcpy(registered_users[RegisteredNumUsers - 1].password, "");
-    RegisteredNumUsers--;
-}
+int LoginUser(char *uid, char *password) {
+    int dir_exists;
+    char uid_path[BUF_SIZE];
+    char login_path[BUF_SIZE];
+    char pass_path[BUF_SIZE];
+    sprintf(uid_path,"%s/USERS/%s",proj_path,uid);
+    sprintf(pass_path,"USERS/%s/%s_pass.txt",uid,uid);
+    sprintf(login_path,"USERS/%s/%s_login.txt" ,uid, uid);
+    dir_exists = isDirectoryExists(uid_path);
+    int txt1;
+    int txt2;
+    if (dir_exists == -1) {
+        return -1;
+    }
+    if (dir_exists) {
+        int file_exists = isFileExists(pass_path);
+        if (file_exists == -1) {
+            return -1;
+        }      
+        
+        if (file_exists) {
+            // User is registered
+            FILE *fp = fopen(pass_path, "r");
+            if (fp == NULL) {
+                return -1;
+            }
+            char file_password[BUF_SIZE];
+            fgets(file_password,BUF_SIZE,fp);
+            if (strcmp(password,file_password) == 0) {
+                //User logged in correctly
+                txt1 = create_file(login_path,"");
+                if(txt1==-1)
+                    return -1;
+                sprintf(msg, "RLI OK\n");
+            }
+            else {
+                //User not logged in correctly
+                sprintf(msg, "RLI NOK\n");
+            }
+        }
 
-/*
-void LogoutUser(int userID) {
-    int i, registered = 0;
+        else {
+            //User was unregistered
+            txt1 = create_file(pass_path,password);
+            if(txt1==-1)
+                return -1;
 
-    for (i = 0; i < RegisteredNumUsers; i++) {
-        if (registered_users[i].UID == userID) {
-            registered = 1;
-            break;
+            txt2 = create_file(login_path,"");
+            if(txt2==-1)
+                return -1;
+            sprintf(msg, "RLI REG\n");  
         }
     }
+    else {
+        // Never registered before
+        int ret;
+        char hosted_path[BUF_SIZE];
+        char bidded_path[BUF_SIZE];
+        sprintf(uid_path,"USERS/%s",uid);
+        sprintf(hosted_path,"USERS/%s/HOSTED",uid);
+        sprintf(bidded_path,"USERS/%s/BIDDED",uid);
+        
+        ret = mkdir(uid_path,0700);
+        if(ret==-1)
+            return -1;
+        
+        ret = mkdir(hosted_path,0700);
+        if(ret==-1)
+            return -1;
+        
+        ret = mkdir(bidded_path,0700);
+        if(ret==-1)
+            return -1;
+        
+        txt1 = create_file(pass_path,password);
+        if(txt1==-1)
+            return -1;
 
-    if (registered) {
-        // Move the last user to the position of the removed user
-        registered_users[i] = registered_users[RegisteredNumUsers - 1];
-        RegisteredNumUsers--;
-        registered_users[RegisteredNumUsers - 1].UID = 0;
-        strcpy(registered_users[RegisteredNumUsers - 1].password,"");
-        printf("User with ID %d removed successfully.\n", userID);
-    } else {
-        printf("User with ID %d not found.\n", userID);
+        txt2 = create_file(login_path,"");
+        if(txt2==-1)
+            return -1;
+
+        sprintf(msg, "RLI REG\n");   
+
     }
+    return 0;
 }
 
-*/
+int LogoutUser(char *uid) {
+    int dir_exists;
+    char uid_path[BUF_SIZE];
+    char login_path[BUF_SIZE];
+    char pass_path[BUF_SIZE];
+    sprintf(uid_path,"%s/USERS/%s",proj_path,uid);
+    sprintf(pass_path,"USERS/%s/%s_pass.txt",uid,uid);
+    sprintf(login_path,"USERS/%s/%s_login.txt" ,uid, uid);
+    dir_exists = isDirectoryExists(uid_path);
+    if (dir_exists == -1) {
+        return -1;
+    }
+    if (dir_exists) {
+        int file_exists = isFileExists(pass_path);
+        if (file_exists == -1) {
+            return -1;
+        }      
+        
+        if (file_exists) {
+            // User is registered
+            file_exists = isFileExists(login_path);
+            if (file_exists == -1) {
+                return -1;
+            }
+            if (file_exists) {
+                // User is logged in (do the Logout)
+                unlink(login_path);
+                sprintf(msg, "RLO OK\n");
+            }
+            else {
+                //User is not logged in
+                sprintf(msg, "RLO NOK\n");
+            }
+        }
+        else {
+            //User was unregistered
+            sprintf(msg, "RLO UNR\n");
+        }
+    }
+    else {
+        //User was never registered
+        sprintf(msg, "RLO UNR\n");   
+
+    }
+    return 0;
+}
+
+int UnregisterUser(char *uid) {
+    int dir_exists;
+    char uid_path[BUF_SIZE];
+    char login_path[BUF_SIZE];
+    char pass_path[BUF_SIZE];
+    sprintf(uid_path,"%s/USERS/%s",proj_path,uid);
+    sprintf(pass_path,"USERS/%s/%s_pass.txt",uid,uid);
+    sprintf(login_path,"USERS/%s/%s_login.txt" ,uid, uid);
+    dir_exists = isDirectoryExists(uid_path);
+    if (dir_exists == -1) {
+        return -1;
+    }
+    if (dir_exists) {
+        int file_exists = isFileExists(pass_path);
+        if (file_exists == -1) {
+            return -1;
+        }      
+        
+        if (file_exists) {
+            // User is registered
+            file_exists = isFileExists(login_path);
+            if (file_exists == -1) {
+                return -1;
+            }
+            if (file_exists) {
+                // User is logged in (do the Unregister)
+                unlink(login_path);
+                unlink(pass_path);
+                sprintf(msg, "RUR OK\n");
+            }
+            else {
+                //User is not logged in
+                sprintf(msg, "RUR NOK\n");
+            }
+        }
+        else {
+            //User was unregistered
+            sprintf(msg, "RUR UNR\n");
+        }
+    }
+    else {
+        //User was never registered
+        sprintf(msg, "RUR UNR\n");   
+
+    }
+    return 0;
+}
+
 
 /* Funções de comandos */
-int login_user(int uid, char *password, char *msg) {
-    for (int i = 0; i < RegisteredNumUsers; i++) {
-        if (registered_users[i].UID == uid) {
-            if (strcmp(registered_users[i].password, password) == 0) {
-                sprintf(msg, "RLI OK\n");
-                LoginUser(uid, password);
-                return 0;
-            } else
-                sprintf(msg, "RLI NOK\n");
-            return 0;
-        }
-    }
-    RegisterUser(uid, password);
-    sprintf(msg, "RLI REG\n");
-    return 0;
-}
-int unregister_logout_user(int uid, char *msg, int type) {
-    for (int i = 0; i < RegisteredNumUsers; i++) {
-        if (registered_users[i].UID == uid) {
-            for (int j = 0; j < LoggedNumUsers; j++) {
-                if (logged_users[j].UID == uid) {
-                    if (type == LOGOUT) {
-                        sprintf(msg, "RLO OK\n");
-                        LogoutUser(j);
-                        return 0;
-                    } else {
-                        sprintf(msg, "RUR OK\n");
-                        LogoutUser(j);
-                        UnregisterUser(i);
-                        return 0;
-                    }
-                }
-            }
-            if (type == LOGOUT) {
-                sprintf(msg, "RLO NOK\n");
-                return 0;
-            } else {
-                sprintf(msg, "RUR NOK\n");
-                return 0;
-            }
-        }
-    }
-    if (type == LOGOUT) {
-        sprintf(msg, "RLO UNR\n");
-    } else {
-        sprintf(msg, "RUR UNR\n");
-    }
-    return 0;
-}
-
-int user_auctions(int uid, char *msg) {
-    int logged = 0;
-    int first_auction = 1;
-    for (int j = 0; j < LoggedNumUsers; j++) {
-        if (logged_users[j].UID == uid) {
-            logged = 1;
-            break;
-        }
-    }
-    for (int i = 0; i < NumAuctions; i++) {
-        if (auctions[i].user.UID == uid) {
-            if (logged == 0) {
-                sprintf(msg, "RMA NLG\n");
-                return 0;
-            } else if (first_auction) {
-                sprintf(msg, "RMA OK");
-                first_auction = 0;
-            }
-            sprintf(msg + strlen(msg) + 1, "%d %d", auctions[i].AID,
-                    auctions[i].state);
-        }
-    }
-    if (!first_auction) {
-        strcat(msg, "\n");
-    } else {
-        sprintf(msg, "RMA NOK\n");
-    }
-    return 0;
-}
-
-int user_bids(int uid, char *msg) {
-    int logged = 0;
-    int first_bid = 1;
-    for (int j = 0; j < LoggedNumUsers; j++) {
-        if (logged_users[j].UID == uid) {
-            logged = 1;
-            break;
-        }
-    }
-    for (int i = 0; i < NumBids; i++) {
-        if (bids[i].user.UID == uid) {
-            if (logged == 0) {
-                sprintf(msg, "RMB NLG\n");
-                return 0;
-            } else if (first_bid) {
-                sprintf(msg, "RMB OK");
-                first_bid = 0;
-            }
-            sprintf(msg + strlen(msg) + 1, "%d %d", bids[i].auction.AID,
-                    bids[i].auction.state);
-        }
-    }
-    if (!first_bid) {
-        strcat(msg, "\n");
-    } else {
-        sprintf(msg, "RMB NOK\n");
-    }
-    return 0;
-}
-
-int list(char *msg) {
-    if (NumAuctions == 0) {
-        sprintf(msg, "RLS NOK\n");
+int login_user(char *uid, char *password) {
+    if (LoginUser(uid,password)!=-1) {
         return 0;
     }
-    sprintf(msg, "RLS OK");
-    for (int i = 0; i < NumAuctions; i++) {
-        sprintf(msg + strlen(msg) + 1, "%d %d", auctions[i].AID,
-                auctions[i].state);
+    else {
+        // define server error TODO
+        return -1;
     }
-    strcat(msg, "\n");
+}
+int logout_user(char *uid) {
+    if (LogoutUser(uid)!=-1) {
+        return 0;
+    }
+    else {
+        // define server error TODO
+        return -1;
+    }
+    return 0;
+}
+
+int unregister_user(char *uid) {
+    if (UnregisterUser(uid)!=-1) {
+        return 0;
+    }
+    else {
+        // define server error TODO
+        return -1;
+    }
     return 0;
 }
 
@@ -302,61 +354,37 @@ int init_tcp() {
 int handle_udp() {
     int n;
     addrlen = sizeof(addr);
-    char temp[128];
-    int uid;
-    char password[9];
-    /* Lê da socket (fd_udp) 128 bytes e guarda-os no buffer.
+    char temp[BUF_SIZE];
+    char uid[32], password[32];
+    /* Lê da socket (fd_udp) BUF_SIZE bytes e guarda-os no buffer.
     Existem flags opcionais que não são passadas (0).
     O endereço do cliente (e o seu tamanho) são guardados para mais tarde
     devolver o texto */
-    n = recvfrom(fd_udp, buffer, 128, 0, (struct sockaddr *)&addr, &addrlen);
+    n = recvfrom(fd_udp, buffer, BUF_SIZE, 0, (struct sockaddr *)&addr, &addrlen);
     if (n == -1) return -1;
 
     // TODO: INTERPRETAR MENSAGENS DO CLIENTE
     sscanf(buffer, "%s ", temp);
     if (!strcmp(temp, "LIN")) {
         // login
-        if (sscanf(buffer, "LIN %d %s", &uid, password) == 2)
-            login_user(uid, password, msg);
-    } else if (!strcmp(temp, "LOU")) {
-        // logout
-        if (sscanf(buffer, "LOU %d %s", &uid, password) == 2)
-            unregister_logout_user(uid, msg, LOGOUT);
+        if (sscanf(buffer, "LIN %s %s", uid, password) == 2)
+            login_user(uid, password);
+    } 
+    else if (!strcmp(temp, "LOU")) {
+        // login
+        if (sscanf(buffer, "LOU %s %s", uid, password) == 2)
+            logout_user(uid);
     }
 
     else if (!strcmp(temp, "UNR")) {
         // unregister
-        if (sscanf(buffer, "UNR %d %s", &uid, password) == 2)
-            unregister_logout_user(uid, msg, UNREGISTER);
+        if (sscanf(buffer, "UNR %s %s", uid, password) == 2)
+            unregister_user(uid);
     }
 
-    else if (!strcmp(temp, "LMA")) {
-        // myauctions
-        if (sscanf(buffer, "UNR %d", &uid) == 1) user_auctions(uid, msg);
-    }
+    printf("SERVER MSG: %s",msg);
+    n = sendto(fd_udp, msg, strlen(msg) + 1, 0, (struct sockaddr *)&addr, addrlen);
 
-    else if (!strcmp(temp, "LMB")) {
-        // mybids
-        if (sscanf(buffer, "UNR %d", &uid) == 1) user_bids(uid, msg);
-    }
-
-    else if (!strcmp(temp, "LST")) {
-        list(msg);
-    }
-
-    else if (!strcmp(temp, "SRC")) {
-        // show_record
-    }
-
-    /* Faz 'echo' da mensagem recebida para o STDOUT do servidor
-       printf("UDP | Received message | %d bytes | %s\n", n, buffer);
-    */
-
-    /* Envia a mensagem recebida (atualmente presente no buffer) para o
-     * endereço 'addr' de onde foram recebidos dados */
-    printf("SERVER MSG: %s", msg);
-    n = sendto(fd_udp, msg, strlen(msg) + 1, 0, (struct sockaddr *)&addr,
-               addrlen);
     if (n == -1) return -1;
     return 0;
 }
@@ -390,10 +418,10 @@ int download_file(int fd, char *fname, int fsize) {
 }
 
 int handle_tcp(int fd) {
-    char temp[128];
+    char temp[BUF_SIZE];
     /* Já conectado, o cliente então escreve algo para a sua socket.
     Esses dados são lidos para o buffer. */
-    n = read(fd, buffer, 128);
+    n = read(fd, buffer, BUF_SIZE);
     if (n == -1) {
         if (DEBUG) printf("TCP | Error reading socket (connected) %d\n", fd);
         return -1;
@@ -443,8 +471,10 @@ int accept_tcp() {
 int main() {
     int fd_new, max_fd = 0;
 
+    CreateInitialDirs();
     init_udp();
     init_tcp();
+
 
     fd_set fds, fds_ready;
     FD_ZERO(&fds);
@@ -457,7 +487,6 @@ int main() {
         handle_tcp(fd_new); */
     /* Loop para receber bytes e processá-los */
     while (1) {
-        printf("REINICIA MSG\n");
         memset(msg, 0, BUF_SIZE);
         fds_ready = fds;
 
