@@ -1,4 +1,5 @@
 #include <arpa/inet.h>
+#include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <stdarg.h>
@@ -6,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -33,12 +35,12 @@ struct User {
 
 struct Auction {
     struct User user;
-    char* image;
+    char *image;
     char description[11];
     int value;
     int duration;
     int AID;
-    int state;       // active = 1 , otherwise = 0
+    int state;  // active = 1 , otherwise = 0
 };
 
 struct Bid {
@@ -48,13 +50,22 @@ struct Bid {
 };
 
 struct User registered_users[MAX_USERS];  // Array to store user data
-struct User logged_users[MAX_USERS];  // Array to store user data
+struct User logged_users[MAX_USERS];      // Array to store user data
 struct Auction auctions[MAX_AUCTIONS];
 struct Bid bids[MAX_BIDS];
 int RegisteredNumUsers = 0;  // Number of users currently registered
-int LoggedNumUsers = 0;  // Number of users currently logged in
+int LoggedNumUsers = 0;      // Number of users currently logged in
 int NumAuctions = 0;
 int NumBids = 0;
+
+long get_file_size(char *filename) {
+    struct stat file_status;
+    if (stat(filename, &file_status) < 0) {
+        return -1;
+    }
+
+    return file_status.st_size;
+}
 
 void LoginUser(int userID, const char *password) {
     if (LoggedNumUsers < MAX_USERS) {
@@ -67,13 +78,11 @@ void LoginUser(int userID, const char *password) {
     }
 }
 
-
 void LogoutUser(int pos) {
-    
     // Move the last user to the position of the removed user
     logged_users[pos] = logged_users[LoggedNumUsers - 1];
     logged_users[LoggedNumUsers - 1].UID = 0;
-    strcpy(logged_users[LoggedNumUsers - 1].password,"");
+    strcpy(logged_users[LoggedNumUsers - 1].password, "");
     LoggedNumUsers--;
 }
 
@@ -82,7 +91,7 @@ void RegisterUser(int userID, const char *password) {
         registered_users[RegisteredNumUsers].UID = userID;
         strcpy(registered_users[RegisteredNumUsers].password, password);
         RegisteredNumUsers++;
-        LoginUser(userID,password);
+        LoginUser(userID, password);
         printf("User registered successfully.\n");
     } else {
         printf("Cannot register more users. Maximum limit reached.\n");
@@ -90,11 +99,10 @@ void RegisterUser(int userID, const char *password) {
 }
 
 void UnregisterUser(int pos) {
-    
     // Move the last user to the position of the removed user
     registered_users[pos] = registered_users[RegisteredNumUsers - 1];
     registered_users[RegisteredNumUsers - 1].UID = 0;
-    strcpy(registered_users[RegisteredNumUsers - 1].password,"");
+    strcpy(registered_users[RegisteredNumUsers - 1].password, "");
     RegisteredNumUsers--;
 }
 
@@ -124,116 +132,111 @@ void LogoutUser(int userID) {
 */
 
 /* Funções de comandos */
-int login_user(int uid, char *password,char *msg) {
+int login_user(int uid, char *password, char *msg) {
     for (int i = 0; i < RegisteredNumUsers; i++) {
         if (registered_users[i].UID == uid) {
-            if (strcmp(registered_users[i].password,password) == 0) {
+            if (strcmp(registered_users[i].password, password) == 0) {
                 sprintf(msg, "RLI OK\n");
-                LoginUser(uid,password);
+                LoginUser(uid, password);
                 return 0;
-            }
-            else sprintf(msg, "RLI NOK\n");
+            } else
+                sprintf(msg, "RLI NOK\n");
             return 0;
         }
     }
-    RegisterUser(uid,password);
+    RegisterUser(uid, password);
     sprintf(msg, "RLI REG\n");
     return 0;
 }
-int unregister_logout_user(int uid,char *msg,int type) {
+int unregister_logout_user(int uid, char *msg, int type) {
     for (int i = 0; i < RegisteredNumUsers; i++) {
         if (registered_users[i].UID == uid) {
             for (int j = 0; j < LoggedNumUsers; j++) {
                 if (logged_users[j].UID == uid) {
-                    if (type==LOGOUT) {
+                    if (type == LOGOUT) {
                         sprintf(msg, "RLO OK\n");
                         LogoutUser(j);
-                        return 0;  
-                    }
-                    else {
+                        return 0;
+                    } else {
                         sprintf(msg, "RUR OK\n");
                         LogoutUser(j);
                         UnregisterUser(i);
-                        return 0;  
-                    }  
+                        return 0;
+                    }
                 }
             }
-            if (type==LOGOUT) {
+            if (type == LOGOUT) {
                 sprintf(msg, "RLO NOK\n");
                 return 0;
-            }
-            else {
+            } else {
                 sprintf(msg, "RUR NOK\n");
                 return 0;
-            }  
+            }
         }
     }
-    if (type==LOGOUT) {
+    if (type == LOGOUT) {
         sprintf(msg, "RLO UNR\n");
-    }
-    else {
+    } else {
         sprintf(msg, "RUR UNR\n");
     }
     return 0;
 }
 
-int user_auctions(int uid,char *msg) {
+int user_auctions(int uid, char *msg) {
     int logged = 0;
     int first_auction = 1;
     for (int j = 0; j < LoggedNumUsers; j++) {
         if (logged_users[j].UID == uid) {
-            logged=1;
+            logged = 1;
             break;
         }
     }
     for (int i = 0; i < NumAuctions; i++) {
         if (auctions[i].user.UID == uid) {
-            if (logged==0) {
+            if (logged == 0) {
                 sprintf(msg, "RMA NLG\n");
                 return 0;
-            }
-            else if (first_auction) {
+            } else if (first_auction) {
                 sprintf(msg, "RMA OK");
                 first_auction = 0;
             }
-            sprintf(msg + strlen(msg) + 1, "%d %d",auctions[i].AID,auctions[i].state);
+            sprintf(msg + strlen(msg) + 1, "%d %d", auctions[i].AID,
+                    auctions[i].state);
         }
     }
     if (!first_auction) {
         strcat(msg, "\n");
-    }
-    else {
+    } else {
         sprintf(msg, "RMA NOK\n");
     }
     return 0;
 }
 
-int user_bids(int uid,char *msg) {
+int user_bids(int uid, char *msg) {
     int logged = 0;
     int first_bid = 1;
     for (int j = 0; j < LoggedNumUsers; j++) {
         if (logged_users[j].UID == uid) {
-            logged=1;
+            logged = 1;
             break;
         }
     }
     for (int i = 0; i < NumBids; i++) {
         if (bids[i].user.UID == uid) {
-            if (logged==0) {
+            if (logged == 0) {
                 sprintf(msg, "RMB NLG\n");
                 return 0;
-            }
-            else if (first_bid) {
+            } else if (first_bid) {
                 sprintf(msg, "RMB OK");
                 first_bid = 0;
             }
-            sprintf(msg + strlen(msg) + 1, "%d %d",bids[i].auction.AID,bids[i].auction.state);
+            sprintf(msg + strlen(msg) + 1, "%d %d", bids[i].auction.AID,
+                    bids[i].auction.state);
         }
     }
     if (!first_bid) {
         strcat(msg, "\n");
-    }
-    else {
+    } else {
         sprintf(msg, "RMB NOK\n");
     }
     return 0;
@@ -246,7 +249,8 @@ int list(char *msg) {
     }
     sprintf(msg, "RLS OK");
     for (int i = 0; i < NumAuctions; i++) {
-        sprintf(msg + strlen(msg) + 1, "%d %d",auctions[i].AID,auctions[i].state);
+        sprintf(msg + strlen(msg) + 1, "%d %d", auctions[i].AID,
+                auctions[i].state);
     }
     strcat(msg, "\n");
     return 0;
@@ -313,30 +317,27 @@ int handle_udp() {
     if (!strcmp(temp, "LIN")) {
         // login
         if (sscanf(buffer, "LIN %d %s", &uid, password) == 2)
-            login_user(uid, password,msg);
-    } 
-    else if (!strcmp(temp, "LOU")) {
+            login_user(uid, password, msg);
+    } else if (!strcmp(temp, "LOU")) {
         // logout
         if (sscanf(buffer, "LOU %d %s", &uid, password) == 2)
-            unregister_logout_user(uid, msg,LOGOUT);
+            unregister_logout_user(uid, msg, LOGOUT);
     }
 
     else if (!strcmp(temp, "UNR")) {
         // unregister
         if (sscanf(buffer, "UNR %d %s", &uid, password) == 2)
-            unregister_logout_user(uid, msg,UNREGISTER);
+            unregister_logout_user(uid, msg, UNREGISTER);
     }
 
     else if (!strcmp(temp, "LMA")) {
         // myauctions
-        if (sscanf(buffer, "UNR %d", &uid) == 1)
-            user_auctions(uid,msg);
+        if (sscanf(buffer, "UNR %d", &uid) == 1) user_auctions(uid, msg);
     }
 
     else if (!strcmp(temp, "LMB")) {
         // mybids
-        if (sscanf(buffer, "UNR %d", &uid) == 1)
-            user_bids(uid,msg);
+        if (sscanf(buffer, "UNR %d", &uid) == 1) user_bids(uid, msg);
     }
 
     else if (!strcmp(temp, "LST")) {
@@ -347,19 +348,44 @@ int handle_udp() {
         // show_record
     }
 
-
-
-     /* Faz 'echo' da mensagem recebida para o STDOUT do servidor 
-        printf("UDP | Received message | %d bytes | %s\n", n, buffer);
-     */
-     
-
+    /* Faz 'echo' da mensagem recebida para o STDOUT do servidor
+       printf("UDP | Received message | %d bytes | %s\n", n, buffer);
+    */
 
     /* Envia a mensagem recebida (atualmente presente no buffer) para o
      * endereço 'addr' de onde foram recebidos dados */
-    printf("SERVER MSG: %s",msg);
-    n = sendto(fd_udp, msg, strlen(msg) + 1, 0, (struct sockaddr *)&addr, addrlen);
+    printf("SERVER MSG: %s", msg);
+    n = sendto(fd_udp, msg, strlen(msg) + 1, 0, (struct sockaddr *)&addr,
+               addrlen);
     if (n == -1) return -1;
+    return 0;
+}
+
+int download_file(int fd, char *fname, int fsize) {
+    char downloaded[BUF_SIZE];
+    strcpy(fname, "test2.txt");
+    int new_file = open(fname, O_WRONLY | O_APPEND | O_CREAT, 0777);
+    printf("Created file %s, writing...\n", fname);
+    while (fsize > 0) {
+        n = read(fd, downloaded, 128);
+        if (n == -1) {
+            if (DEBUG)
+                printf("TCP | Error downloading file (connected) %d\n", fd);
+            return -1;
+        }
+        n = write(new_file, downloaded, 128);
+        if (n == -1) {
+            if (DEBUG)
+                printf("TCP | Error writing downloaded file (connected) %d\n",
+                       fd);
+            return -1;
+        }
+        /* printf("Wrote %zd bytes\n",n); */
+        fsize -= n;
+    }
+    close(new_file);
+    printf("Finished writing file %s (%ld bytes)\n", fname,
+           get_file_size(fname));
     return 0;
 }
 
@@ -376,16 +402,24 @@ int handle_tcp(int fd) {
     /* Faz 'echo' da mensagem recebida para o STDOUT do servidor */
     printf("TCP | fd:%d\t| Received %zd bytes | %s\n", fd, n, buffer);
     sscanf(buffer, "%s ", temp);
+    if (!strcmp(temp, "OPA")) {
+        char fname[128], aname[128], password[128];
+        int uid, timeactive, fsize;
+        float start_value;
+        sscanf(buffer, "OPA %d %s %s %f %d %s %d", &uid, password, aname,
+               &start_value, &timeactive, fname, &fsize);
+        download_file(fd, fname, fsize);
+    }
 
     /* Envia a mensagem recebida (atualmente presente no buffer) para a
      * socket */
-    n = write(fd, buffer, n);
+    /* n = write(fd, buffer, n);
     if (n == -1) {
         if (DEBUG) printf("TCP | Error writing in socket (connected) %d\n", fd);
         return -1;
-    }
+    } */
 
-    return 0;
+    return n;
 }
 
 int accept_tcp() {
@@ -426,6 +460,16 @@ int main() {
         printf("REINICIA MSG\n");
         memset(msg, 0, BUF_SIZE);
         fds_ready = fds;
+
+        // Debugging fd list
+        /* printf("File descriptors: ");
+        for (int k = 0; k < max_fd + 1; k++) {
+            if (FD_ISSET(k, &fds_ready)) {
+                printf("%d ", k);
+            }
+        }
+        printf("\n"); */
+
         if (select(max_fd + 1, &fds_ready, NULL, NULL, NULL) < 0) return -1;
         for (int i = 0; i <= max_fd; i++) {
             if (FD_ISSET(i, &fds_ready)) {
@@ -435,10 +479,14 @@ int main() {
                 else if (i == fd_tcp) {     // socket do tcp pronto a ler;
                     fd_new = accept_tcp();  // retorna socket novo (específico à
                                             // comunicação) depois de aceitar;
+                    max_fd = fd_new;
+                    printf("Socket %d aceite, handling...\n", fd_new);
                     handle_tcp(fd_new);
-                    FD_SET(fd_new, &fds);  // adiciona ao set de FDs
+                    /* FD_SET(fd_new, &fds);  // adiciona ao set de FDs */
+                    printf("Finished handling\n");
                 } else {
-                    handle_tcp(i);
+                    /* int bytes_read = handle_tcp(i);
+                    if (bytes_read <= 0) FD_CLR(fd_new, &fds); */
                     // TODO: quando remover do fd_set?
                 }
             }
