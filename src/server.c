@@ -1,4 +1,6 @@
 #include <arpa/inet.h>
+#include <dirent.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
@@ -10,13 +12,11 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include <sys/stat.h>
-#include <dirent.h>
-#include <errno.h>
 
 #define DEBUG 1
 #define PORT "58051"
 #define BUF_SIZE 128
+#define PASSWORD_SIZE 9
 
 int fd_udp, fd_tcp;
 ssize_t n;
@@ -38,25 +38,24 @@ long get_file_size(char *filename) {
 
 int CreateInitialDirs() {
     int ret;
-    ret = mkdir("USERS",0700);
-    if(ret==-1)
-        return -1;
-    ret = mkdir("AUCTIONS",0700);
-    if(ret==-1) {
+    ret = mkdir("USERS", 0700);
+    if (ret == -1) return -1;
+    ret = mkdir("AUCTIONS", 0700);
+    if (ret == -1) {
         return -1;
     }
     return 0;
 }
 
-int create_file(char* path,char* content) {
+int create_file(char *path, char *content) {
     // argument content = "" (empty file)
     FILE *fp;
-    fp = fopen(path,"w");
-    if (fp==NULL) {
+    fp = fopen(path, "w");
+    if (fp == NULL) {
         return -1;
     }
-    if (strcmp(content,"")!=0) {
-        fprintf(fp,"%s",content);
+    if (strcmp(content, "") != 0) {
+        fprintf(fp, "%s", content);
     }
     fclose(fp);
     return 0;
@@ -69,17 +68,15 @@ int isDirectoryExists(const char *path) {
     } else {
         return 0;
     } */
-    DIR* dir = opendir(path);
+    DIR *dir = opendir(path);
     if (dir) {
         /* Directory exists. */
         closedir(dir);
         return 1;
-    } 
-    else if (ENOENT == errno) {
+    } else if (ENOENT == errno) {
         /* Directory does not exist. */
         return 0;
-    } 
-    else {
+    } else {
         /* opendir() failed for some other reason. */
         return -1;
     }
@@ -92,14 +89,19 @@ int isFileExists(const char *filename) {
     return 0;
 }
 
+int is_logged_in(int uid) {
+    // TODO
+    return 1;
+}
+
 int LoginUser(char *uid, char *password) {
     int dir_exists;
     char uid_path[BUF_SIZE];
     char login_path[BUF_SIZE];
     char pass_path[BUF_SIZE];
-    sprintf(uid_path,"%s/USERS/%s",proj_path,uid);
-    sprintf(pass_path,"USERS/%s/%s_pass.txt",uid,uid);
-    sprintf(login_path,"USERS/%s/%s_login.txt" ,uid, uid);
+    sprintf(uid_path, "%s/USERS/%s", proj_path, uid);
+    sprintf(pass_path, "USERS/%s/%s_pass.txt", uid, uid);
+    sprintf(login_path, "USERS/%s/%s_login.txt", uid, uid);
     dir_exists = isDirectoryExists(uid_path);
     int txt1;
     int txt2;
@@ -110,8 +112,8 @@ int LoginUser(char *uid, char *password) {
         int file_exists = isFileExists(pass_path);
         if (file_exists == -1) {
             return -1;
-        }      
-        
+        }
+
         if (file_exists) {
             // User is registered
             FILE *fp = fopen(pass_path, "r");
@@ -119,63 +121,52 @@ int LoginUser(char *uid, char *password) {
                 return -1;
             }
             char file_password[BUF_SIZE];
-            fgets(file_password,BUF_SIZE,fp);
-            if (strcmp(password,file_password) == 0) {
-                //User logged in correctly
-                txt1 = create_file(login_path,"");
-                if(txt1==-1)
-                    return -1;
+            fgets(file_password, BUF_SIZE, fp);
+            if (strcmp(password, file_password) == 0) {
+                // User logged in correctly
+                txt1 = create_file(login_path, "");
+                if (txt1 == -1) return -1;
                 sprintf(msg, "RLI OK\n");
-            }
-            else {
-                //User not logged in correctly
+            } else {
+                // User not logged in correctly
                 sprintf(msg, "RLI NOK\n");
             }
         }
 
         else {
-            //User was unregistered
-            txt1 = create_file(pass_path,password);
-            if(txt1==-1)
-                return -1;
+            // User was unregistered
+            txt1 = create_file(pass_path, password);
+            if (txt1 == -1) return -1;
 
-            txt2 = create_file(login_path,"");
-            if(txt2==-1)
-                return -1;
-            sprintf(msg, "RLI REG\n");  
+            txt2 = create_file(login_path, "");
+            if (txt2 == -1) return -1;
+            sprintf(msg, "RLI REG\n");
         }
-    }
-    else {
+    } else {
         // Never registered before
         int ret;
         char hosted_path[BUF_SIZE];
         char bidded_path[BUF_SIZE];
-        sprintf(uid_path,"USERS/%s",uid);
-        sprintf(hosted_path,"USERS/%s/HOSTED",uid);
-        sprintf(bidded_path,"USERS/%s/BIDDED",uid);
-        
-        ret = mkdir(uid_path,0700);
-        if(ret==-1)
-            return -1;
-        
-        ret = mkdir(hosted_path,0700);
-        if(ret==-1)
-            return -1;
-        
-        ret = mkdir(bidded_path,0700);
-        if(ret==-1)
-            return -1;
-        
-        txt1 = create_file(pass_path,password);
-        if(txt1==-1)
-            return -1;
+        sprintf(uid_path, "USERS/%s", uid);
+        sprintf(hosted_path, "USERS/%s/HOSTED", uid);
+        sprintf(bidded_path, "USERS/%s/BIDDED", uid);
 
-        txt2 = create_file(login_path,"");
-        if(txt2==-1)
-            return -1;
+        ret = mkdir(uid_path, 0700);
+        if (ret == -1) return -1;
 
-        sprintf(msg, "RLI REG\n");   
+        ret = mkdir(hosted_path, 0700);
+        if (ret == -1) return -1;
 
+        ret = mkdir(bidded_path, 0700);
+        if (ret == -1) return -1;
+
+        txt1 = create_file(pass_path, password);
+        if (txt1 == -1) return -1;
+
+        txt2 = create_file(login_path, "");
+        if (txt2 == -1) return -1;
+
+        sprintf(msg, "RLI REG\n");
     }
     return 0;
 }
@@ -185,9 +176,9 @@ int LogoutUser(char *uid) {
     char uid_path[BUF_SIZE];
     char login_path[BUF_SIZE];
     char pass_path[BUF_SIZE];
-    sprintf(uid_path,"%s/USERS/%s",proj_path,uid);
-    sprintf(pass_path,"USERS/%s/%s_pass.txt",uid,uid);
-    sprintf(login_path,"USERS/%s/%s_login.txt" ,uid, uid);
+    sprintf(uid_path, "%s/USERS/%s", proj_path, uid);
+    sprintf(pass_path, "USERS/%s/%s_pass.txt", uid, uid);
+    sprintf(login_path, "USERS/%s/%s_login.txt", uid, uid);
     dir_exists = isDirectoryExists(uid_path);
     if (dir_exists == -1) {
         return -1;
@@ -196,8 +187,8 @@ int LogoutUser(char *uid) {
         int file_exists = isFileExists(pass_path);
         if (file_exists == -1) {
             return -1;
-        }      
-        
+        }
+
         if (file_exists) {
             // User is registered
             file_exists = isFileExists(login_path);
@@ -208,21 +199,17 @@ int LogoutUser(char *uid) {
                 // User is logged in (do the Logout)
                 unlink(login_path);
                 sprintf(msg, "RLO OK\n");
-            }
-            else {
-                //User is not logged in
+            } else {
+                // User is not logged in
                 sprintf(msg, "RLO NOK\n");
             }
-        }
-        else {
-            //User was unregistered
+        } else {
+            // User was unregistered
             sprintf(msg, "RLO UNR\n");
         }
-    }
-    else {
-        //User was never registered
-        sprintf(msg, "RLO UNR\n");   
-
+    } else {
+        // User was never registered
+        sprintf(msg, "RLO UNR\n");
     }
     return 0;
 }
@@ -232,9 +219,9 @@ int UnregisterUser(char *uid) {
     char uid_path[BUF_SIZE];
     char login_path[BUF_SIZE];
     char pass_path[BUF_SIZE];
-    sprintf(uid_path,"%s/USERS/%s",proj_path,uid);
-    sprintf(pass_path,"USERS/%s/%s_pass.txt",uid,uid);
-    sprintf(login_path,"USERS/%s/%s_login.txt" ,uid, uid);
+    sprintf(uid_path, "%s/USERS/%s", proj_path, uid);
+    sprintf(pass_path, "USERS/%s/%s_pass.txt", uid, uid);
+    sprintf(login_path, "USERS/%s/%s_login.txt", uid, uid);
     dir_exists = isDirectoryExists(uid_path);
     if (dir_exists == -1) {
         return -1;
@@ -243,8 +230,8 @@ int UnregisterUser(char *uid) {
         int file_exists = isFileExists(pass_path);
         if (file_exists == -1) {
             return -1;
-        }      
-        
+        }
+
         if (file_exists) {
             // User is registered
             file_exists = isFileExists(login_path);
@@ -256,41 +243,34 @@ int UnregisterUser(char *uid) {
                 unlink(login_path);
                 unlink(pass_path);
                 sprintf(msg, "RUR OK\n");
-            }
-            else {
-                //User is not logged in
+            } else {
+                // User is not logged in
                 sprintf(msg, "RUR NOK\n");
             }
-        }
-        else {
-            //User was unregistered
+        } else {
+            // User was unregistered
             sprintf(msg, "RUR UNR\n");
         }
-    }
-    else {
-        //User was never registered
-        sprintf(msg, "RUR UNR\n");   
-
+    } else {
+        // User was never registered
+        sprintf(msg, "RUR UNR\n");
     }
     return 0;
 }
 
-
 /* Funções de comandos */
 int login_user(char *uid, char *password) {
-    if (LoginUser(uid,password)!=-1) {
+    if (LoginUser(uid, password) != -1) {
         return 0;
-    }
-    else {
+    } else {
         // define server error TODO
         return -1;
     }
 }
 int logout_user(char *uid) {
-    if (LogoutUser(uid)!=-1) {
+    if (LogoutUser(uid) != -1) {
         return 0;
-    }
-    else {
+    } else {
         // define server error TODO
         return -1;
     }
@@ -298,10 +278,9 @@ int logout_user(char *uid) {
 }
 
 int unregister_user(char *uid) {
-    if (UnregisterUser(uid)!=-1) {
+    if (UnregisterUser(uid) != -1) {
         return 0;
-    }
-    else {
+    } else {
         // define server error TODO
         return -1;
     }
@@ -360,7 +339,8 @@ int handle_udp() {
     Existem flags opcionais que não são passadas (0).
     O endereço do cliente (e o seu tamanho) são guardados para mais tarde
     devolver o texto */
-    n = recvfrom(fd_udp, buffer, BUF_SIZE, 0, (struct sockaddr *)&addr, &addrlen);
+    n = recvfrom(fd_udp, buffer, BUF_SIZE, 0, (struct sockaddr *)&addr,
+                 &addrlen);
     if (n == -1) return -1;
 
     // TODO: INTERPRETAR MENSAGENS DO CLIENTE
@@ -369,11 +349,9 @@ int handle_udp() {
         // login
         if (sscanf(buffer, "LIN %s %s", uid, password) == 2)
             login_user(uid, password);
-    } 
-    else if (!strcmp(temp, "LOU")) {
+    } else if (!strcmp(temp, "LOU")) {
         // login
-        if (sscanf(buffer, "LOU %s %s", uid, password) == 2)
-            logout_user(uid);
+        if (sscanf(buffer, "LOU %s %s", uid, password) == 2) logout_user(uid);
     }
 
     else if (!strcmp(temp, "UNR")) {
@@ -382,8 +360,9 @@ int handle_udp() {
             unregister_user(uid);
     }
 
-    printf("SERVER MSG: %s",msg);
-    n = sendto(fd_udp, msg, strlen(msg) + 1, 0, (struct sockaddr *)&addr, addrlen);
+    printf("SERVER MSG: %s", msg);
+    n = sendto(fd_udp, msg, strlen(msg) + 1, 0, (struct sockaddr *)&addr,
+               addrlen);
 
     if (n == -1) return -1;
     return 0;
@@ -417,8 +396,104 @@ int download_file(int fd, char *fname, int fsize) {
     return 0;
 }
 
+int tcp_opa(int fd, char *return_msg) {
+    char fname[128], aname[128], password[128];
+    int uid, timeactive, fsize;
+    float start_value;
+    if (sscanf(buffer, "OPA %d %s %s %f %d %s %d", &uid, password, aname,
+               &start_value, &timeactive, fname, &fsize) != 7)
+        return -1;
+    if (!is_logged_in(uid)) {
+        sprintf(return_msg, "ROA NLG\n");
+        return 0;
+    }
+    if (download_file(fd, fname, fsize) == -1) return -1;
+    // TODO: create auction files
+    sprintf(return_msg, "ROA OK\n");
+    return 0;
+}
+
+int auction_exists(int aid) {
+    // TODO
+    return 1;
+}
+
+int auction_owned_by(int aid, int uid) {
+    // TODO
+    return 1;
+}
+
+int auction_ended(int aid) {
+    // TODO
+    return 1;
+}
+
+int tcp_cls(char *return_msg) {
+    char password[PASSWORD_SIZE];
+    int uid, aid;
+    if (sscanf(buffer, "CLS %d %s %d", &uid, password, &aid) != 3) return -1;
+    if (!is_logged_in(uid)) {
+        sprintf(return_msg, "RCL NLG\n");
+    } else if (!auction_exists(aid)) {
+        sprintf(return_msg, "RCL EAU\n");
+    } else if (!auction_owned_by(aid, uid)) {
+        sprintf(return_msg, "RCL EOW\n");
+    } else if (!auction_ended(aid)) {
+        sprintf(return_msg, "RCL END\n");
+    } else {
+        sprintf(return_msg, "RCL OK\n");
+    }
+
+    return 0;
+}
+
+int tcp_sas(int fd, char *return_msg) {
+    int aid, fsize = 0;
+    char fbuf[1024] = "", fname[128] = "*file name*", fpath[128] = "";
+    if (sscanf(buffer, "SAS %d", &aid) != 1) return -1;
+    if (!auction_exists(aid)) return -1;
+    sprintf(fpath, "AUCTIONS/%d/%s", aid, fname);
+    if (!isFileExists(fpath)) return -1;
+
+    sprintf(return_msg, "RSA OK %s %d\n", fname, fsize);
+    n = write(fd, return_msg, strlen(return_msg) + 1);
+    if (n == -1) {
+        if (DEBUG) printf("TCP | Error writing in socket (connected) %d\n", fd);
+        return -1;
+    }
+
+    // TODO: SEND FILE
+
+    return 0;
+}
+
+int place_bid(int aid, float value) {
+    // TODO
+    return 0;
+}
+
+int tcp_bid(char *return_msg) {
+    char password[PASSWORD_SIZE];
+    int uid, aid, success;
+    float value;
+    if (sscanf(buffer, "BID %d %s %d %f", &uid, password, &aid, &value) != 4)
+        return -1;
+    if (!is_logged_in(uid)) {
+        sprintf(return_msg, "RBD NLG\n");
+    } else if (!auction_exists(aid) || auction_ended(aid) ||
+               (success = place_bid(aid, value)) == -1) {
+        sprintf(return_msg, "RBD NOK\n");
+    } else if (auction_owned_by(aid, uid)) {
+        sprintf(return_msg, "RBD ILG\n");
+    } else if (success == 0) {  // bid inferior
+        sprintf(return_msg, "RBD REF\n");
+    }
+    return 0;
+}
+
 int handle_tcp(int fd) {
     char temp[BUF_SIZE];
+    char return_msg[BUF_SIZE] = "";
     /* Já conectado, o cliente então escreve algo para a sua socket.
     Esses dados são lidos para o buffer. */
     n = read(fd, buffer, BUF_SIZE);
@@ -431,21 +506,27 @@ int handle_tcp(int fd) {
     printf("TCP | fd:%d\t| Received %zd bytes | %s\n", fd, n, buffer);
     sscanf(buffer, "%s ", temp);
     if (!strcmp(temp, "OPA")) {
-        char fname[128], aname[128], password[128];
-        int uid, timeactive, fsize;
-        float start_value;
-        sscanf(buffer, "OPA %d %s %s %f %d %s %d", &uid, password, aname,
-               &start_value, &timeactive, fname, &fsize);
-        download_file(fd, fname, fsize);
+        if (tcp_opa(fd, return_msg) == -1) {
+            sprintf(return_msg, "ROA NOK\n");
+        }
+    } else if (!strcmp(temp, "CLS")) {
+        if (tcp_cls(return_msg) == -1) sprintf(return_msg, "RCL NOK\n");
+    } else if (!strcmp(temp, "SAS")) {
+        if (tcp_sas(fd, return_msg) == -1)
+            sprintf(return_msg, "RSA NOK\n");
+        else
+            return 0;
+    } else if (!strcmp(temp, "BID")) {
+        tcp_bid(return_msg);
     }
 
     /* Envia a mensagem recebida (atualmente presente no buffer) para a
      * socket */
-    /* n = write(fd, buffer, n);
+    n = write(fd, return_msg, strlen(return_msg) + 1);
     if (n == -1) {
         if (DEBUG) printf("TCP | Error writing in socket (connected) %d\n", fd);
         return -1;
-    } */
+    }
 
     return n;
 }
@@ -474,7 +555,6 @@ int main() {
     CreateInitialDirs();
     init_udp();
     init_tcp();
-
 
     fd_set fds, fds_ready;
     FD_ZERO(&fds);
@@ -513,6 +593,7 @@ int main() {
                     handle_tcp(fd_new);
                     /* FD_SET(fd_new, &fds);  // adiciona ao set de FDs */
                     printf("Finished handling\n");
+                    close(fd_new);
                 } else {
                     /* int bytes_read = handle_tcp(i);
                     if (bytes_read <= 0) FD_CLR(fd_new, &fds); */
