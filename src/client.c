@@ -9,6 +9,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <ctype.h>
 #define DEBUG 1
 #define BUF_SIZE 128
 #define TCP_BUF_SIZE 1024
@@ -52,8 +53,37 @@ int input_verified(int uid, char *password) {
         ++count_digits;
     }
 
-    if(count_digits==6 && strlen(password) == 8) return 1;
-    else return 0;
+    if(count_digits!=6 || strlen(password) != 8) {
+        return 0;
+    }
+
+    while (*password) {
+        if (!isalnum(*password)) {
+            return 0; // Not alphanumeric
+        }
+        password++;
+    }
+    // All characters are alphanumeric
+
+    return 1;
+}
+
+int handle_udp_server_msg(char* msg) {
+    char temp[BUF_SIZE];
+    char status[BUF_SIZE];
+    sscanf(msg, "%s", temp);
+    if (strcmp(temp,"RLI") == 0) {
+        if (sscanf(msg, "RLI %s",status) == 1) {
+            if (strcmp(status,"OK")!=0) {
+                uid = 0;
+                strcpy(password,"");
+            }
+        }
+        else {
+            return -1;
+        }
+    }
+    return 0;
 }
 
 int udp(char *msg) {
@@ -84,6 +114,8 @@ int udp(char *msg) {
 
     write(1, "server_output: ", 16);
     write(1, buf_udp, n);
+
+    handle_udp_server_msg(buf_udp);
 
     freeaddrinfo(res);
     close(fd);
@@ -226,6 +258,10 @@ int parse_msg_udp(char *buffer, char *msg) {
         }
         sprintf(msg, "LMA %d", uid);
     } else if (!strcmp(temp, "mybids") || !strcmp(temp, "mb")) {
+        if (!has_uid_pwd()) {
+            printf("UID and password not found locally. Try logging in first.\n");
+            return -1;
+        }
         sprintf(msg, "LMB %d", uid);
     } else if (!strcmp(temp, "list") || !strcmp(temp, "l")) {
         sprintf(msg, "LST");
