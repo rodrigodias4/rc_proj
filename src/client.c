@@ -102,7 +102,7 @@ int udp(char *msg) {
     if (errcode != 0) /*error*/
         exit(1);
 
-    n = sendto(fd, msg, strlen(msg) + 1, 0, res->ai_addr, res->ai_addrlen);
+    n = sendto(fd, msg, strlen(msg), 0, res->ai_addr, res->ai_addrlen);
     if (n == -1) /*error*/
         exit(1);
     addrlen = sizeof(addr);
@@ -162,7 +162,7 @@ int tcp_talk(char *msg, int trim) {
     if (trim < 0 || trim > 1) return -1;
     /* Escreve a mensagem para o servidor, especificando o seu
      * tamanho */
-    n = write(fd, msg, trim * (str_len + 1) + (1 - trim) * TCP_BUF_SIZE);
+    n = write(fd, msg, trim * (str_len) + (1 - trim) * TCP_BUF_SIZE);
     if (n == -1) {
         exit(1);
     }
@@ -421,7 +421,7 @@ int parse_msg() {
     if (res == -1) return -1;          // error
     if (res == 1) {                    // input corresponds to udp command
         strcat(msg, "\n");
-        printf("%s", msg);
+        if (DEBUG) printf("Message sent -> %s", msg);
         udp(msg);
         return 0;
     }
