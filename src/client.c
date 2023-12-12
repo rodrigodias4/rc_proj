@@ -26,8 +26,8 @@ char asport[8] = "58051";  // 58000 + group number (51)
 // tejo ip: 193.136.138.142
 // 58011 : server
 // 58001 : echo
-int uid = 0;
-char password[PASSWORD_SIZE] = "";
+int uid = 0 , uid_test = 0;
+char password[PASSWORD_SIZE] = "" , password_test[PASSWORD_SIZE] = "";
 
 long get_file_size(char *filename) {
     struct stat file_status;
@@ -74,7 +74,29 @@ int handle_udp_server_msg(char* msg) {
     sscanf(msg, "%s", temp);
     if (strcmp(temp,"RLI") == 0) {
         if (sscanf(msg, "RLI %s",status) == 1) {
-            if (strcmp(status,"OK")!=0) {
+            if (strcmp(status,"NOK")!=0) {
+                uid = uid_test;
+                strcpy(password,password_test);
+            }
+        }
+        else {
+            return -1;
+        }
+    }
+    if (strcmp(temp,"RLO") == 0) {
+        if (sscanf(msg, "RLO %s",status) == 1) {
+            if (strcmp(status,"OK")==0) {
+                uid = 0;
+                strcpy(password,"");
+            }
+        }
+        else {
+            return -1;
+        }
+    }
+    if (strcmp(temp,"RUR") == 0) {
+        if (sscanf(msg, "RUR %s",status) == 1) {
+            if (strcmp(status,"OK")==0) {
                 uid = 0;
                 strcpy(password,"");
             }
@@ -217,17 +239,13 @@ int listener_RBD() {
 }
 
 int login(char *buffer, char *msg) {
-    int uid_test;
-    char password_test[PASSWORD_SIZE];
     if (has_uid_pwd()) {
         printf("Try logging out first.\n");
         return -1;
     }
     if (sscanf(buffer, "login %d %s", &uid_test, password_test) != 2) return -1;
     if (!input_verified(uid_test, password_test)) return -1;
-    uid = uid_test;
-    strcpy(password, password_test);
-    sprintf(msg, "LIN %d %s", uid, password);
+    sprintf(msg, "LIN %d %s", uid_test, password_test);
 
     return 0;
 }
@@ -238,8 +256,6 @@ int logout(char *msg) {
         return -1;
     }
     sprintf(msg, "LOU %d %s", uid, password);
-    uid = 0;
-    strcpy(password, "");
 
     return 0;
 }
@@ -260,8 +276,6 @@ int parse_msg_udp(char *buffer, char *msg) {
             return -1;
         }
         sprintf(msg, "UNR %d %s", uid, password);
-        uid = 0;
-        strcpy(password, "");
     } else if (!strcmp(temp, "myauctions") || !strcmp(temp, "ma")) {
         if (!has_uid_pwd()) {
             printf(
