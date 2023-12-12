@@ -12,6 +12,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <time.h>
 
 #define DEBUG 1
 #define PORT "58051"
@@ -26,6 +27,9 @@ struct sockaddr_in addr;
 char buffer[BUF_SIZE];
 char msg[1024];
 char proj_path[BUF_SIZE] = "";  // change this
+int current_aid = 100;
+time_t fulltime;
+char time_str[20];
 
 long get_file_size(char *filename) {
     struct stat file_status;
@@ -86,13 +90,7 @@ int create_file(char *path, char *content) {
     return 0;
 }
 int is_Directory_Exists(const char *path) {
-    /* DIR *dir = opendir(path);
-    if (dir != NULL) {
-        closedir(dir);
-        return 1;
-    } else {
-        return 0;
-    } */
+    // full path as argument
     DIR *dir = opendir(path);
     if (dir) {
         /* Directory exists. */
@@ -108,15 +106,61 @@ int is_Directory_Exists(const char *path) {
 }
 
 int is_File_Exists(const char *filename) {
+    // relative path as argument
     if (access(filename, F_OK) != -1) {
         return 1;
     }
     return 0;
 }
 
+void get_current_time() {
+    struct tm *current_time;
+    time(&fulltime);
+    current_time = gmtime(&fulltime);
+    sprintf(time_str,"%4d-%02d-%02d %02d:%02d:%02d",
+    current_time->tm_year + 1900, current_time->tm_mon+1, current_time->tm_mday ,
+    current_time->tm_hour,current_time->tm_min,current_time->tm_sec) ;
+}
+
+
 int is_logged_in(int uid) {
-    // TODO
-    return 1;
+    int file_exists;
+    char login_path[BUF_SIZE];
+    sprintf(login_path, "USERS/%d/%d_login.txt", uid, uid);
+    file_exists = is_File_Exists(login_path);
+    if (file_exists == -1) {
+        return -1;
+    }
+
+    return file_exists;
+}
+
+int add_auction_to_auctions(int uid,int timeactive,char *fname,char *aname,float start_value) {
+    char auction_dir[BUF_SIZE], asset_dir[BUF_SIZE], bids_dir[BUF_SIZE], start_path[BUF_SIZE] ,content[BUF_SIZE];
+    int ret;
+    sprintf(auction_dir, "AUCTIONS/%03d", current_aid);
+    ret = mkdir(auction_dir, 0700);
+    if (ret == -1) return -1;
+
+    sprintf(asset_dir, "AUCTIONS/%03d/ASSET", current_aid);
+    ret = mkdir(asset_dir, 0700);
+    if (ret == -1) return -1;
+
+    sprintf(bids_dir, "AUCTIONS/%03d/BIDS", current_aid);
+    ret = mkdir(bids_dir, 0700);
+    if (ret == -1) return -1;
+
+    get_current_time();
+
+    sprintf(start_path, "AUCTIONS/%d/START_%d.txt", current_aid,current_aid);
+
+    //UID name asset fname start value timeactive start datetime start fulltime
+    sprintf(content,"%d %s %s %f %d %s %ld",uid,aname,fname,start_value,timeactive,time_str,fulltime);
+
+    ret = create_file(start_path,content);
+    if (ret == -1) return -1;
+
+    return 0;
 }
 
 int Login_User(int uid, char *password) {
@@ -172,9 +216,9 @@ int Login_User(int uid, char *password) {
         int ret;
         char hosted_path[BUF_SIZE];
         char bidded_path[BUF_SIZE];
-        sprintf(uid_path, "USERS/%d", uid);
-        sprintf(hosted_path, "USERS/%d/HOSTED", uid);
-        sprintf(bidded_path, "USERS/%d/BIDDED", uid);
+        sprintf(uid_path, "USERS/%06d", uid);
+        sprintf(hosted_path, "USERS/%06d/HOSTED", uid);
+        sprintf(bidded_path, "USERS/%06d/BIDDED", uid);
 
         ret = mkdir(uid_path, 0700);
         if (ret == -1) return -1;
@@ -441,8 +485,8 @@ int download_file(int fd, char *fname, int fsize) {
 }
 
 int tcp_opa(int fd, char *return_msg) {
-    char fname[128], aname[128], password[128];
-    int uid, timeactive, fsize;
+    char fname[BUF_SIZE], aname[BUF_SIZE], password[BUF_SIZE],users_hosted_path[BUF_SIZE];
+    int uid, timeactive, fsize, res;
     float start_value;
     if (sscanf(buffer, "OPA %d %s %s %f %d %s %d", &uid, password, aname,
                &start_value, &timeactive, fname, &fsize) != 7)
@@ -451,9 +495,23 @@ int tcp_opa(int fd, char *return_msg) {
         sprintf(return_msg, "ROA NLG\n");
         return 0;
     }
-    if (download_file(fd, fname, fsize) == -1) return -1;
-    // TODO: create auction files
+    /* TODO: create auction files
+    if (download_file(fd, fname, fsize) == -1) return -1; */
+
+    res = add_auction_to_auctions(uid,timeactive,fname,aname,start_value);
+    if (res==-1) {
+        return -1;
+    }
+
+    sprintf(users_hosted_path, "USERS/%06d/HOSTED/%d.txt", uid,current_aid);
+    res = create_file(users_hosted_path,"");;
+    if (res==-1) {
+        return -1;
+    }
+
     sprintf(return_msg, "ROA OK\n");
+
+    current_aid++;
     return 0;
 }
 
@@ -473,8 +531,13 @@ int auction_ended(int aid) {
 }
 
 int tcp_cls(char *return_msg) {
-    char password[PASSWORD_SIZE];
-    int uid, aid;
+    printf("CHEGAS1/n");
+    time_t start_time=0,duration_time=0;
+    FILE *fp;
+    int uid,timeactive=0,t1,t2,ret,aid;
+    float start_value=0;
+    char password[PASSWORD_SIZE], path[BUF_SIZE],file_content[BUF_SIZE],
+    fname[BUF_SIZE],aname[BUF_SIZE],start_time_string[20];
     if (sscanf(buffer, "CLS %d %s %d", &uid, password, &aid) != 3) return -1;
     if (!is_logged_in(uid)) {
         sprintf(return_msg, "RCL NLG\n");
@@ -487,7 +550,22 @@ int tcp_cls(char *return_msg) {
     } else {
         sprintf(return_msg, "RCL OK\n");
     }
-
+    printf("CHEGAS2/n");
+    sprintf(path,"AUCTIONS/%d/START_%d.txt", aid,aid);
+    fp = fopen(path, "r");
+    if (fp == NULL) {
+        return -1;
+    }
+    fgets(file_content, BUF_SIZE, fp);
+    sscanf(file_content,"%d %s %s %f %d %s %ld",uid,aname,fname,start_value,timeactive,start_time_string,start_time);
+    get_current_time();
+    duration_time = fulltime - start_time;
+    sprintf(file_content, "%s %ld",time_str,duration_time);
+    sprintf(path,"AUCTIONS/%d/END_%d.txt", aid,aid);
+    ret = create_file(path,file_content);
+    if (ret==-1) {
+        return -1;
+    }
     return 0;
 }
 
