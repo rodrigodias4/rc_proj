@@ -1,4 +1,5 @@
 #include <arpa/inet.h>
+#include <ctype.h>
 #include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
@@ -9,13 +10,21 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include <ctype.h>
+#include <math.h>
 #define DEBUG 1
 #define BUF_SIZE 128
 #define TCP_BUF_SIZE 1024
 #define TRIM 1
 #define NO_TRIM 0
 #define PASSWORD_SIZE 9
+
+#define A_DESC_MAX_LEN 10
+#define A_START_VALUE_MAX_LEN 6
+#define A_DURATION_MAX_LEN 5
+#define A_FILENAME_MAX_LEN 24
+#define A_FILE_SIZE_MAX_VALUE 10000000
+#define A_FILE_SIZE_MAX_LEN 8
+
 int fd, errcode;
 ssize_t n;
 socklen_t addrlen;
@@ -38,7 +47,7 @@ long get_file_size(char *filename) {
     return file_status.st_size;
 }
 
-int valid_aid(int aid) { return (aid >= 100 && aid <= 999); }
+int valid_aid(int aid) { return aid >= 0 && aid <= 999; }
 
 /** Checks if the program has user UID and password (user has to login) */
 int has_uid_pwd() { return uid != 0 && strcmp(password, "") != 0; }
@@ -46,20 +55,20 @@ int has_uid_pwd() { return uid != 0 && strcmp(password, "") != 0; }
 int input_verified(int uid, char *password) {
     // Count the number of digits in the entered number
     int count_digits = 0;
-    int temp = uid; // Temporary variable to store the number
+    int temp = uid;  // Temporary variable to store the number
 
     while (temp != 0) {
         temp /= 10;
         ++count_digits;
     }
 
-    if(count_digits!=6 || strlen(password) != 8) {
+    if (count_digits != 6 || strlen(password) != 8) {
         return 0;
     }
 
     while (*password) {
         if (!isalnum(*password)) {
-            return 0; // Not alphanumeric
+            return 0;  // Not alphanumeric
         }
         password++;
     }
@@ -68,18 +77,17 @@ int input_verified(int uid, char *password) {
     return 1;
 }
 
-int handle_udp_server_msg(char* msg) {
+int handle_udp_server_msg(char *msg) {
     char temp[BUF_SIZE];
     char status[BUF_SIZE];
     sscanf(msg, "%s", temp);
-    if (strcmp(temp,"RLI") == 0) {
-        if (sscanf(msg, "RLI %s",status) == 1) {
-            if (strcmp(status,"OK")!=0) {
+    if (strcmp(temp, "RLI") == 0) {
+        if (sscanf(msg, "RLI %s", status) == 1) {
+            if (strcmp(status, "OK") && strcmp(status, "REG")) {
                 uid = 0;
-                strcpy(password,"");
+                strcpy(password, "");
             }
-        }
-        else {
+        } else {
             return -1;
         }
     }
@@ -194,28 +202,6 @@ int tcp(char *msg) {
     return 0;
 }
 
-/* Response listeners/interpreters */
-
-int listener_ROA() {
-    // TODO
-    return 0;
-}
-
-int listener_RCL() {
-    // TODO
-    return 0;
-}
-
-int listener_RAS() {
-    // TODO
-    return 0;
-}
-
-int listener_RBD() {
-    // TODO
-    return 0;
-}
-
 int login(char *buffer, char *msg) {
     int uid_test;
     char password_test[PASSWORD_SIZE];
@@ -271,7 +257,8 @@ int parse_msg_udp(char *buffer, char *msg) {
         sprintf(msg, "LMA %d", uid);
     } else if (!strcmp(temp, "mybids") || !strcmp(temp, "mb")) {
         if (!has_uid_pwd()) {
-            printf("UID and password not found locally. Try logging in first.\n");
+            printf(
+                "UID and password not found locally. Try logging in first.\n");
             return -1;
         }
         sprintf(msg, "LMB %d", uid);
@@ -306,12 +293,36 @@ int cls(char *buffer, char *msg) {
 }
 
 int opa(char *buffer, char *msg) {
-    float start_value;
-    int time_active, fsize, remaining;
+    int time_active, fsize, remaining, start_value;
     char description[BUF_SIZE], img_fname[BUF_SIZE];
-    if (sscanf(buffer, "open %s %s %f %d", description, img_fname, &start_value,
+
+    if (sscanf(buffer, "open %s %s %d %d", description, img_fname, &start_value,
                &time_active) != 4) {
         puts("open: Invalid arguments");
+        return -1;
+    }
+
+    // Check variable constraints
+    if (strlen(description) > A_DESC_MAX_LEN) {
+        puts("Description is too big. Max 10 characters.");
+        return -1;
+    }
+    if (start_value >= pow(10,A_START_VALUE_MAX_LEN+1)) {
+        printf("Start value too high, max %d digits.\n", A_START_VALUE_MAX_LEN);
+        return -1;
+    }
+    if (time_active >= pow(10,A_DURATION_MAX_LEN + 1)) {
+        printf("Duration too high, max %d digits. %d\n", A_DURATION_MAX_LEN, time_active);
+        return -1;
+    }
+    if (strlen(img_fname) > A_FILENAME_MAX_LEN) {
+        printf("File name is too large. Max %d characters.\n",A_FILENAME_MAX_LEN);
+    }
+
+    fsize = get_file_size(img_fname);
+    if (fsize < 0) return -1;
+    if (fsize > A_FILE_SIZE_MAX_VALUE) {
+        printf("File is too large.\n");
         return -1;
     }
 
@@ -319,30 +330,28 @@ int opa(char *buffer, char *msg) {
         printf("open: Not logged in.\n");
         return -1;
     }
-
-    fsize = get_file_size(img_fname);
-    if (fsize < 0) return -1;
-
-    sprintf(msg, "OPA %d %s %s %f %d %s %d\n", uid, password, description,
+    sprintf(msg, "OPA %d %s %s %d %d %s %d\n", uid, password, description,
             start_value, time_active, img_fname, fsize);
-
-    int file_to_send;
+    tcp(msg);
+    /* int file_to_send;
     if ((file_to_send = open(img_fname, O_RDONLY)) < 0) return -1;
     remaining = fsize;
     tcp_open();
+
     tcp_talk(msg, TRIM);  // send text before file
-    while (remaining > 0) {
-        if (DEBUG)
+    while (remaining > 0) { */
+        /* if (DEBUG)
             printf("open: Sending file %s | %d bytes remaining \n", img_fname,
-                   remaining);
-        read(file_to_send, msg, BUF_SIZE);
+                   remaining); */
+        /* read(file_to_send, msg, BUF_SIZE);
 
         tcp_talk(msg, NO_TRIM);
         remaining -= BUF_SIZE;
     }
     tcp_talk(" \n", NO_TRIM);
     tcp_close();
-    if (DEBUG) printf("Finished uploading file %s\n", img_fname);
+
+    if (DEBUG) printf("Finished uploading file %s\n", img_fname); */
     return 0;
 }
 
@@ -359,36 +368,36 @@ int sas(char *buffer, char *msg, char *temp) {
 }
 
 int bid(char *buffer, char *msg) {
-    float value;
-    int aid;
-    if (sscanf(buffer, "bid %d %f", &aid, &value) != 2) return -1;
+    int aid, value;
+    if (sscanf(buffer, "bid %d %d", &aid, &value) != 2) return -1;
     if (!valid_aid(aid)) return -1;
 
-    sprintf(msg, "BID %d %s %d %f\n", uid, password, aid, value);
+    sprintf(msg, "BID %d %s %d %d\n", uid, password, aid, value);
     tcp(msg);
     return 0;
 }
 
 /* NOT TESTED AT ALL */
 int parse_msg_tcp(char *buffer, char *msg) {
-    char temp[BUF_SIZE];
+    char temp[BUF_SIZE], buf_tcp[BUF_SIZE] = "";
 
     sscanf(buffer, "%s ", temp);
     if (!strcmp(temp, "open")) {
         if (opa(buffer, msg) == 1) return -1;
     } else if (!strcmp(temp, "close")) {
         if (cls(buffer, msg) == -1) return -1;
-        listener_RCL();
     } else if (!strcmp(temp, "show_asset") || !strcmp(temp, "sa")) {
         if (sas(buffer, msg, temp) == -1) return -1;
-        listener_ROA();
     } else if (!strcmp(temp, "bid")) {
         if (bid(buffer, msg) == -1) return -1;
         // TODO
     } else {
         return 0;
     }
-    if (DEBUG) printf("%s",msg);
+    if (DEBUG) printf("%s", msg);
+    int n = read(fd, buf_tcp, BUF_SIZE);
+    printf("READ %d BYTES\n", n);
+    printf("server_output: %s",buf_tcp);
     return 1;
 }
 
@@ -451,6 +460,7 @@ int main(int argc, char **argv) {
 
     while (1) {
         if (DEBUG) printf("DEBUG: New while cycle\n");
+        fflush(stdout);
         // read message from terminal
         int res;
         res = parse_msg();
