@@ -12,24 +12,23 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include <time.h>
 
 #define DEBUG 1
 #define PORT "58051"
 #define BUF_SIZE 128
+#define A_DESC_MAX_LEN 10 + 1
+#define A_START_VALUE_MAX_LEN 6
+#define A_DURATION_MAX_LEN 5
 #define PASSWORD_SIZE 9
 
-int fd_udp, fd_tcp;
+int fd_udp, fd_tcp, next_aid = 0;
 ssize_t n;
 socklen_t addrlen;
 struct addrinfo hints_udp, hints_tcp, *res_udp, *res_tcp;
 struct sockaddr_in addr;
 char buffer[BUF_SIZE];
 char msg[1024];
-char proj_path[BUF_SIZE] = "";  // change this
-int current_aid = 100;
-time_t fulltime;
-char time_str[20];
+char proj_path[128] = "";
 
 long get_file_size(char *filename) {
     struct stat file_status;
@@ -38,42 +37,6 @@ long get_file_size(char *filename) {
     }
 
     return file_status.st_size;
-}
-
-int input_verified(int uid, char *password) {
-    // Count the number of digits in the entered number
-    int count_digits = 0;
-    int temp = uid; // Temporary variable to store the number
-
-    while (temp != 0) {
-        temp /= 10;
-        ++count_digits;
-    }
-
-    if(count_digits!=6 || strlen(password) != 8) {
-        return 0;
-    }
-
-    while (*password) {
-        if (!isalnum(*password)) {
-            return 0; // Not alphanumeric
-        }
-        password++;
-    }
-    // All characters are alphanumeric
-
-    return 1;
-}
-
-int Create_Initial_Dirs() {
-    int ret;
-    ret = mkdir("USERS", 0700);
-    if (ret == -1) return -1;
-    ret = mkdir("AUCTIONS", 0700);
-    if (ret == -1) {
-        return -1;
-    }
-    return 0;
 }
 
 int create_file(char *path, char *content) {
@@ -89,8 +52,14 @@ int create_file(char *path, char *content) {
     fclose(fp);
     return 0;
 }
-int is_Directory_Exists(const char *path) {
-    // full path as argument
+int isDirectoryExists(const char *path) {
+    /* DIR *dir = opendir(path);
+    if (dir != NULL) {
+        closedir(dir);
+        return 1;
+    } else {
+        return 0;
+    } */
     DIR *dir = opendir(path);
     if (dir) {
         /* Directory exists. */
@@ -105,80 +74,69 @@ int is_Directory_Exists(const char *path) {
     }
 }
 
-int is_File_Exists(const char *filename) {
-    // relative path as argument
-    if (access(filename, F_OK) != -1) {
-        return 1;
+int CreateInitialDirs() {
+    int ret;
+    char path[256];
+    sprintf(path, "%s/USERS", proj_path);
+    if (!isDirectoryExists(path)) {
+        ret = mkdir("USERS", 0700);
+        if (ret == -1) return -1;
+    }
+    sprintf(path, "%s/AUCTIONS", proj_path);
+    if (!isDirectoryExists(path)) {
+        ret = mkdir("AUCTIONS", 0700);
+        if (ret == -1) return -1;
     }
     return 0;
 }
 
-void get_current_time() {
-    struct tm *current_time;
-    time(&fulltime);
-    current_time = gmtime(&fulltime);
-    sprintf(time_str,"%4d-%02d-%02d %02d:%02d:%02d",
-    current_time->tm_year + 1900, current_time->tm_mon+1, current_time->tm_mday ,
-    current_time->tm_hour,current_time->tm_min,current_time->tm_sec) ;
+int remove_auction(int aid) {
+    char a_dir[256];
+    sprintf(a_dir, "%s/AUCTIONS/%d/", proj_path, aid);
+    DIR *theFolder = opendir(a_dir);
+    struct dirent *next_file;
+    char filepath[256];
+
+    while ((next_file = readdir(theFolder)) != NULL) {
+        if (!strcmp(next_file->d_name, ".") || !strcmp(next_file->d_name, ".."))
+            continue;
+        // build the path for each file in the folder
+        sprintf(filepath, "%s/%s", a_dir, next_file->d_name);
+        remove(filepath);
+    }
+    closedir(theFolder);
+    rmdir(a_dir);
+    return 0;
 }
 
+int isFileExists(const char *filename) {
+    return (access(filename, F_OK) != -1);
+}
 
 int is_logged_in(int uid) {
-    int file_exists;
-    char login_path[BUF_SIZE];
-    sprintf(login_path, "USERS/%d/%d_login.txt", uid, uid);
-    file_exists = is_File_Exists(login_path);
-    if (file_exists == -1) {
-        return -1;
-    }
-
-    return file_exists;
+    // TODO
+    return 1;
 }
 
-int add_auction_to_auctions(int uid,int timeactive,char *fname,char *aname,float start_value) {
-    char auction_dir[BUF_SIZE], asset_dir[BUF_SIZE], bids_dir[BUF_SIZE], start_path[BUF_SIZE] ,content[BUF_SIZE];
-    int ret;
-    sprintf(auction_dir, "AUCTIONS/%03d", current_aid);
-    ret = mkdir(auction_dir, 0700);
-    if (ret == -1) return -1;
-
-    sprintf(asset_dir, "AUCTIONS/%03d/ASSET", current_aid);
-    ret = mkdir(asset_dir, 0700);
-    if (ret == -1) return -1;
-
-    sprintf(bids_dir, "AUCTIONS/%03d/BIDS", current_aid);
-    ret = mkdir(bids_dir, 0700);
-    if (ret == -1) return -1;
-
-    get_current_time();
-
-    sprintf(start_path, "AUCTIONS/%d/START_%d.txt", current_aid,current_aid);
-
-    //UID name asset fname start value timeactive start datetime start fulltime
-    sprintf(content,"%d %s %s %f %d %s %ld",uid,aname,fname,start_value,timeactive,time_str,fulltime);
-
-    ret = create_file(start_path,content);
-    if (ret == -1) return -1;
-
-    return 0;
-}
-
-int Login_User(int uid, char *password) {
+int LoginUser(int uid, char *password) {
     int dir_exists;
-    char uid_path[BUF_SIZE];
-    char login_path[BUF_SIZE];
-    char pass_path[BUF_SIZE];
+    char uid_path[256];
+    char login_path[256];
+    char pass_path[256];
     sprintf(uid_path, "%s/USERS/%d", proj_path, uid);
     sprintf(pass_path, "USERS/%d/%d_pass.txt", uid, uid);
     sprintf(login_path, "USERS/%d/%d_login.txt", uid, uid);
-    dir_exists = is_Directory_Exists(uid_path);
+    dir_exists = isDirectoryExists(uid_path);
     int txt1;
     int txt2;
     if (dir_exists == -1) {
+        if (DEBUG) printf("login: dir_exists == -1");
+        fflush(stdout);
         return -1;
     }
+
     if (dir_exists) {
-        int file_exists = is_File_Exists(pass_path);
+        int file_exists = isFileExists(pass_path);
         if (file_exists == -1) {
             return -1;
         }
@@ -216,9 +174,9 @@ int Login_User(int uid, char *password) {
         int ret;
         char hosted_path[BUF_SIZE];
         char bidded_path[BUF_SIZE];
-        sprintf(uid_path, "USERS/%06d", uid);
-        sprintf(hosted_path, "USERS/%06d/HOSTED", uid);
-        sprintf(bidded_path, "USERS/%06d/BIDDED", uid);
+        sprintf(uid_path, "USERS/%d", uid);
+        sprintf(hosted_path, "USERS/%d/HOSTED", uid);
+        sprintf(bidded_path, "USERS/%d/BIDDED", uid);
 
         ret = mkdir(uid_path, 0700);
         if (ret == -1) return -1;
@@ -240,7 +198,7 @@ int Login_User(int uid, char *password) {
     return 0;
 }
 
-int Logout_User(int uid) {
+int LogoutUser(int uid) {
     int dir_exists;
     char uid_path[BUF_SIZE];
     char login_path[BUF_SIZE];
@@ -248,19 +206,19 @@ int Logout_User(int uid) {
     sprintf(uid_path, "%s/USERS/%d", proj_path, uid);
     sprintf(pass_path, "USERS/%d/%d_pass.txt", uid, uid);
     sprintf(login_path, "USERS/%d/%d_login.txt", uid, uid);
-    dir_exists = is_Directory_Exists(uid_path);
+    dir_exists = isDirectoryExists(uid_path);
     if (dir_exists == -1) {
         return -1;
     }
     if (dir_exists) {
-        int file_exists = is_File_Exists(pass_path);
+        int file_exists = isFileExists(pass_path);
         if (file_exists == -1) {
             return -1;
         }
 
         if (file_exists) {
             // User is registered
-            file_exists = is_File_Exists(login_path);
+            file_exists = isFileExists(login_path);
             if (file_exists == -1) {
                 return -1;
             }
@@ -283,7 +241,7 @@ int Logout_User(int uid) {
     return 0;
 }
 
-int Unregister_User(int uid) {
+int UnregisterUser(int uid) {
     int dir_exists;
     char uid_path[BUF_SIZE];
     char login_path[BUF_SIZE];
@@ -291,19 +249,19 @@ int Unregister_User(int uid) {
     sprintf(uid_path, "%s/USERS/%d", proj_path, uid);
     sprintf(pass_path, "USERS/%d/%d_pass.txt", uid, uid);
     sprintf(login_path, "USERS/%d/%d_login.txt", uid, uid);
-    dir_exists = is_Directory_Exists(uid_path);
+    dir_exists = isDirectoryExists(uid_path);
     if (dir_exists == -1) {
         return -1;
     }
     if (dir_exists) {
-        int file_exists = is_File_Exists(pass_path);
+        int file_exists = isFileExists(pass_path);
         if (file_exists == -1) {
             return -1;
         }
 
         if (file_exists) {
             // User is registered
-            file_exists = is_File_Exists(login_path);
+            file_exists = isFileExists(login_path);
             if (file_exists == -1) {
                 return -1;
             }
@@ -329,8 +287,7 @@ int Unregister_User(int uid) {
 
 /* Funções de comandos */
 int login_user(int uid, char *password) {
-    if (Login_User(uid, password) != -1) {
-        
+    if (LoginUser(uid, password) != -1) {
         return 0;
     } else {
         // define server error TODO
@@ -338,7 +295,7 @@ int login_user(int uid, char *password) {
     }
 }
 int logout_user(int uid) {
-    if (Logout_User(uid) != -1) {
+    if (LogoutUser(uid) != -1) {
         return 0;
     } else {
         // define server error TODO
@@ -348,7 +305,7 @@ int logout_user(int uid) {
 }
 
 int unregister_user(int uid) {
-    if (Unregister_User(uid) != -1) {
+    if (UnregisterUser(uid) != -1) {
         return 0;
     } else {
         // define server error TODO
@@ -401,11 +358,10 @@ int init_tcp() {
 }
 
 int handle_udp() {
-    int n;
+    int n, uid;
     addrlen = sizeof(addr);
     char temp[BUF_SIZE];
-    int uid;
-    char password[9];
+    char password[32];
     /* Lê da socket (fd_udp) BUF_SIZE bytes e guarda-os no buffer.
     Existem flags opcionais que não são passadas (0).
     O endereço do cliente (e o seu tamanho) são guardados para mais tarde
@@ -414,53 +370,38 @@ int handle_udp() {
                  &addrlen);
     if (n == -1) return -1;
 
-    if (DEBUG) printf("UDP | Received %zd bytes | %s\n", n, buffer);
+    if (DEBUG) printf("UDP | Received %d bytes | %s\n", n, buffer);
     // TODO: INTERPRETAR MENSAGENS DO CLIENTE
     sscanf(buffer, "%s ", temp);
     if (!strcmp(temp, "LIN")) {
         // login
-        if (sscanf(buffer, "LIN %d %s", &uid, password) == 2 && input_verified(uid,password)) { //error
+        if (sscanf(buffer, "LIN %d %s", &uid, password) == 2)
             login_user(uid, password);
-        }
-        else {
-            return -1;
-        }
-    } 
-    else if (!strcmp(temp, "LOU")) {
-        // logout
-        if (sscanf(buffer, "LOU %d %s", &uid, password) == 2 && input_verified(uid,password)) {
-            logout_user(uid);
-        }
-        else {
-            return -1;
-        }
+    } else if (!strcmp(temp, "LOU")) {
+        // login
+        if (sscanf(buffer, "LOU %d %s", &uid, password) == 2) logout_user(uid);
     }
 
     else if (!strcmp(temp, "UNR")) {
         // unregister
-        if (sscanf(buffer, "UNR %d %s", &uid, password) == 2 && input_verified(uid,password)) {
+        if (sscanf(buffer, "UNR %d %s", &uid, password) == 2)
             unregister_user(uid);
-        }
-        else {
-            return -1;
-        }
     }
 
-    // implement the other udp commands 
-
     printf("SERVER MSG: %s", msg);
-    n = sendto(fd_udp, msg, strlen(msg), 0, (struct sockaddr *)&addr,   // strlen(msg) + 1 changed to strlen(msg)
+    n = sendto(fd_udp, msg, strlen(msg) + 1, 0, (struct sockaddr *)&addr,
                addrlen);
 
     if (n == -1) return -1;
     return 0;
 }
 
-int download_file(int fd, char *fname, int fsize) {
+int download_file(int fd, char *fname, int fsize, int newline_index) {
     char downloaded[BUF_SIZE];
     strcpy(fname, "test2.txt");
-    int new_file = open(fname, O_WRONLY | O_APPEND | O_CREAT, 0777);
+    int new_file = open(fname, O_WRONLY | O_TRUNC | O_CREAT, 0777);
     printf("Created file %s, writing...\n", fname);
+    /* write(fd, buffer + newline_index, BUF_SIZE - newline_index - 1); */
     while (fsize > 0) {
         n = read(fd, downloaded, 128);
         if (n == -1) {
@@ -475,7 +416,7 @@ int download_file(int fd, char *fname, int fsize) {
                        fd);
             return -1;
         }
-        /* printf("Wrote %zd bytes\n",n); */
+        // printf("Wrote %zd bytes\n", n);
         fsize -= n;
     }
     close(new_file);
@@ -485,33 +426,49 @@ int download_file(int fd, char *fname, int fsize) {
 }
 
 int tcp_opa(int fd, char *return_msg) {
-    char fname[BUF_SIZE], aname[BUF_SIZE], password[BUF_SIZE],users_hosted_path[BUF_SIZE];
-    int uid, timeactive, fsize, res;
-    float start_value;
-    if (sscanf(buffer, "OPA %d %s %s %f %d %s %d", &uid, password, aname,
+    char fname[128], aname[A_DESC_MAX_LEN], password[128], a_dir[256],
+        temp[BUF_SIZE];
+    int uid, timeactive, fsize, start_value;
+
+    if (sscanf(buffer, "OPA %d %s %s %d %d %s %d", &uid, password, aname,
                &start_value, &timeactive, fname, &fsize) != 7)
         return -1;
     if (!is_logged_in(uid)) {
         sprintf(return_msg, "ROA NLG\n");
         return 0;
     }
-    /* TODO: create auction files
-    if (download_file(fd, fname, fsize) == -1) return -1; */
+    sprintf(a_dir, "%s/AUCTIONS/%03d", proj_path, next_aid);
 
-    res = add_auction_to_auctions(uid,timeactive,fname,aname,start_value);
-    if (res==-1) {
+    // Create auction AID directory
+    mkdir(a_dir, 0700);
+    if (DEBUG) puts("Created auction folder. ");
+
+    /* int newline_index;
+    for (newline_index = 0; newline_index < strlen(buffer); newline_index++) {
+        if (buffer[newline_index] == '\n') {
+            newline_index++;
+            break;
+        }
+    } */
+    // Download asset file
+    //if (download_file(fd, fname, fsize, newline_index) == -1) return -1;
+    // Create START file
+    char file_path[256];
+    sprintf(file_path, "%s/START_%03d.txt", a_dir, next_aid);
+
+    if (open(file_path, O_WRONLY | O_CREAT) == -1) {
+        puts("ERROR: Could not create start file.");
         return -1;
     }
+    if (DEBUG) puts("Created start file. ");
 
-    sprintf(users_hosted_path, "USERS/%06d/HOSTED/%d.txt", uid,current_aid);
-    res = create_file(users_hosted_path,"");;
-    if (res==-1) {
-        return -1;
-    }
-
+    // Create BIDS folder
+    sprintf(file_path, "%s/BIDS/", a_dir);
+    mkdir(file_path, 0700);
+    if (DEBUG) puts("Created bids folder.\n");
     sprintf(return_msg, "ROA OK\n");
-
-    current_aid++;
+    //write(fd, return_msg, 127);
+    next_aid++;
     return 0;
 }
 
@@ -531,13 +488,8 @@ int auction_ended(int aid) {
 }
 
 int tcp_cls(char *return_msg) {
-    printf("CHEGAS1/n");
-    time_t start_time=0,duration_time=0;
-    FILE *fp;
-    int uid,timeactive=0,t1,t2,ret,aid;
-    float start_value=0;
-    char password[PASSWORD_SIZE], path[BUF_SIZE],file_content[BUF_SIZE],
-    fname[BUF_SIZE],aname[BUF_SIZE],start_time_string[20];
+    char password[PASSWORD_SIZE];
+    int uid, aid;
     if (sscanf(buffer, "CLS %d %s %d", &uid, password, &aid) != 3) return -1;
     if (!is_logged_in(uid)) {
         sprintf(return_msg, "RCL NLG\n");
@@ -550,22 +502,7 @@ int tcp_cls(char *return_msg) {
     } else {
         sprintf(return_msg, "RCL OK\n");
     }
-    printf("CHEGAS2/n");
-    sprintf(path,"AUCTIONS/%d/START_%d.txt", aid,aid);
-    fp = fopen(path, "r");
-    if (fp == NULL) {
-        return -1;
-    }
-    fgets(file_content, BUF_SIZE, fp);
-    sscanf(file_content,"%d %s %s %f %d %s %ld",uid,aname,fname,start_value,timeactive,start_time_string,start_time);
-    get_current_time();
-    duration_time = fulltime - start_time;
-    sprintf(file_content, "%s %ld",time_str,duration_time);
-    sprintf(path,"AUCTIONS/%d/END_%d.txt", aid,aid);
-    ret = create_file(path,file_content);
-    if (ret==-1) {
-        return -1;
-    }
+
     return 0;
 }
 
@@ -575,14 +512,14 @@ int tcp_sas(int fd, char *return_msg) {
     if (sscanf(buffer, "SAS %d", &aid) != 1) return -1;
     if (!auction_exists(aid)) return -1;
     sprintf(fpath, "AUCTIONS/%d/%s", aid, fname);
-    if (!is_File_Exists(fpath)) return -1;
+    if (!isFileExists(fpath)) return -1;
 
     sprintf(return_msg, "RSA OK %s %d\n", fname, fsize);
-    n = write(fd, return_msg, strlen(return_msg) + 1);
+    /* n = write(fd, return_msg, strlen(return_msg) + 1);
     if (n == -1) {
         if (DEBUG) printf("TCP | Error writing in socket (connected) %d\n", fd);
         return -1;
-    }
+    } */
 
     // TODO: SEND FILE
 
@@ -594,7 +531,7 @@ int place_bid(int aid, float value) {
     return 0;
 }
 
-int tcp_bid(char *return_msg) {
+int tcp_bid(int fd, char *return_msg) {
     char password[PASSWORD_SIZE];
     int uid, aid, success;
     float value;
@@ -639,17 +576,17 @@ int handle_tcp(int fd) {
         else
             return 0;
     } else if (!strcmp(temp, "BID")) {
-        tcp_bid(return_msg);
+        tcp_bid(fd, return_msg);
     }
 
     /* Envia a mensagem recebida (atualmente presente no buffer) para a
      * socket */
-    n = write(fd, return_msg, strlen(return_msg) + 1);
+    printf("SERVER MSG: %s", return_msg);
+    n = write(fd, return_msg, strlen(return_msg));
     if (n == -1) {
         if (DEBUG) printf("TCP | Error writing in socket (connected) %d\n", fd);
         return -1;
     }
-
     return n;
 }
 
@@ -675,9 +612,20 @@ int main() {
     int fd_new, max_fd = 0;
     getcwd(proj_path, 1024);
 
-    Create_Initial_Dirs();
+    CreateInitialDirs();
     init_udp();
     init_tcp();
+
+    // Set the next AID to the last existing AID + 1
+    char a_path[256];
+    while (1) {
+        sprintf(a_path, "%s/AUCTIONS/%03d", proj_path, next_aid);
+        if (isDirectoryExists(a_path))
+            next_aid++;
+        else
+            break;
+    }
+    if (DEBUG) printf("Found %d auctions.\n", next_aid > 0 ? next_aid - 1 : 0);
 
     fd_set fds, fds_ready;
     FD_ZERO(&fds);
@@ -685,42 +633,39 @@ int main() {
     FD_SET(fd_tcp, &fds);
     max_fd = (fd_tcp > fd_udp) ? fd_tcp : fd_udp;
 
-    /*     listen(fd_tcp, 1);
-        fd_new = accept_tcp();
-        handle_tcp(fd_new); */
     /* Loop para receber bytes e processá-los */
     while (1) {
         memset(msg, 0, BUF_SIZE);
         fds_ready = fds;
 
         // Debugging fd list
-        /* printf("File descriptors: ");
+        if (DEBUG) printf("File descriptors: ");
         for (int k = 0; k < max_fd + 1; k++) {
             if (FD_ISSET(k, &fds_ready)) {
-                printf("%d ", k);
+                if (DEBUG) printf("%d ", k);
             }
         }
-        printf("\n"); */
+        if (DEBUG) printf("\n");
+        fflush(stdout);
 
         if (select(max_fd + 1, &fds_ready, NULL, NULL, NULL) < 0) return -1;
         for (int i = 0; i <= max_fd; i++) {
             if (FD_ISSET(i, &fds_ready)) {
-                printf("Socket %d pronto para ler\n", i);
+                if (DEBUG) printf("Socket %d pronto para ler\n", i);
                 if (i == fd_udp)  // socket do udp pronto a ler
                     handle_udp();
                 else if (i == fd_tcp) {     // socket do tcp pronto a ler;
                     fd_new = accept_tcp();  // retorna socket novo (específico à
                                             // comunicação) depois de aceitar;
                     max_fd = fd_new;
-                    printf("Socket %d aceite, handling...\n", fd_new);
-                    handle_tcp(fd_new);
-                    /* FD_SET(fd_new, &fds);  // adiciona ao set de FDs */
-                    printf("Finished handling\n");
-                    close(fd_new);
+                    if (DEBUG) printf("Socket %d aceite\n", fd_new);
+                    FD_SET(fd_new, &fds);  // adiciona ao set de FDs
                 } else {
-                    /* int bytes_read = handle_tcp(i);
-                    if (bytes_read <= 0) FD_CLR(fd_new, &fds); */
-                    // TODO: quando remover do fd_set?
+                    if (DEBUG) printf("Handling socket %d...\n", i);
+                    int h = handle_tcp(i);
+                    if (DEBUG) printf("Finished handling\n");
+                    //close(i);
+                    FD_CLR(i, &fds);
                 }
             }
         }
