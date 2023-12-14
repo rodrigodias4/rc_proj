@@ -11,6 +11,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <time.h>
 #include <unistd.h>
 
 #define DEBUG 1
@@ -114,6 +115,11 @@ int isFileExists(const char *filename) {
 }
 
 int is_logged_in(int uid) {
+    // TODO
+    return 1;
+}
+
+int password_correct(int uid, char *password) {
     // TODO
     return 1;
 }
@@ -433,6 +439,8 @@ int tcp_opa(int fd, char *return_msg) {
     if (sscanf(buffer, "OPA %d %s %s %d %d %s %d", &uid, password, aname,
                &start_value, &timeactive, fname, &fsize) != 7)
         return -1;
+    if (!password_correct(uid, password))  // TODO
+        return 0;
     if (!is_logged_in(uid)) {
         sprintf(return_msg, "ROA NLG\n");
         return 0;
@@ -451,40 +459,57 @@ int tcp_opa(int fd, char *return_msg) {
         }
     } */
     // Download asset file
-    //if (download_file(fd, fname, fsize, newline_index) == -1) return -1;
+    // if (download_file(fd, fname, fsize, newline_index) == -1) return -1;
     // Create START file
     char file_path[256];
     sprintf(file_path, "%s/START_%03d.txt", a_dir, next_aid);
 
-    if (open(file_path, O_WRONLY | O_CREAT) == -1) {
+    int start_fd;
+    if ((start_fd = open(file_path, O_WRONLY | O_CREAT, 0777)) == -1) {
         puts("ERROR: Could not create start file.");
         return -1;
     }
     if (DEBUG) puts("Created start file. ");
+
+    // Write contents into start file
+    char start_content[512], start_datetime[128];
+
+    time_t time_now;
+    struct tm *time_info;
+    time(&time_now);
+    time_info = localtime(&time_now);
+    strftime(start_datetime, 128, "%Y-%m-%d %X", time_info);
+
+    sprintf(start_content, "%d %s %s %d %d %s %ld\n", uid, aname, fname,
+            start_value, timeactive, start_datetime, time_now);
+    write(start_fd, start_content, strlen(start_content));
+    close(start_fd);
 
     // Create BIDS folder
     sprintf(file_path, "%s/BIDS/", a_dir);
     mkdir(file_path, 0700);
     if (DEBUG) puts("Created bids folder.\n");
     sprintf(return_msg, "ROA OK\n");
-    //write(fd, return_msg, 127);
+    // write(fd, return_msg, 127);
     next_aid++;
     return 0;
 }
 
 int auction_exists(int aid) {
-    // TODO
-    return 1;
+    char temp_path[128];
+    sprintf(temp_path, "%s/AUCTIONS/%03d/START_%03d.txt", proj_path, aid, aid);
+    return isFileExists(temp_path);
 }
 
 int auction_owned_by(int aid, int uid) {
     // TODO
-    return 1;
+    return 0;
 }
 
 int auction_ended(int aid) {
-    // TODO
-    return 1;
+    char temp_path[128];
+    sprintf(temp_path, "%s/AUCTIONS/%03d/END_%03d.txt", proj_path, aid, aid);
+    return isFileExists(temp_path);
 }
 
 int tcp_cls(char *return_msg) {
@@ -526,28 +551,82 @@ int tcp_sas(int fd, char *return_msg) {
     return 0;
 }
 
-int place_bid(int aid, float value) {
-    // TODO
-    return 0;
-}
-
 int tcp_bid(int fd, char *return_msg) {
-    char password[PASSWORD_SIZE];
-    int uid, aid, success;
-    float value;
-    if (sscanf(buffer, "BID %d %s %d %f", &uid, password, &aid, &value) != 4)
-        return -1;
-    if (!is_logged_in(uid)) {
-        sprintf(return_msg, "RBD NLG\n");
-    } else if (!auction_exists(aid) || auction_ended(aid) ||
-               (success = place_bid(aid, value)) == -1) {
+    char password[PASSWORD_SIZE], path[256], bid_content[128], datetime[128],
+        start_content[128];
+    int uid, aid, success, value, highest_bid, start_fd;
+
+    if (sscanf(buffer, "BID %d %s %d %d", &uid, password, &aid, &value) != 4) {
+        if (DEBUG) puts("ERROR: bid sscanf");
         sprintf(return_msg, "RBD NOK\n");
+    } else if (!password_correct(uid, password)) {
+        if (DEBUG) puts("Password incorrect");
+        sprintf(return_msg, "RBD NOK\n");
+    } else if (!is_logged_in(uid)) {
+        sprintf(return_msg, "RBD NLG\n");
     } else if (auction_owned_by(aid, uid)) {
         sprintf(return_msg, "RBD ILG\n");
-    } else if (success == 0) {  // bid inferior
-        sprintf(return_msg, "RBD REF\n");
+    } else if (!auction_exists(aid) || auction_ended(aid)) {
+        if (DEBUG) printf("ERROR: %d %d",auction_exists(aid),auction_ended(aid));
+        sprintf(return_msg, "RBD NOK\n");
     }
-    return 0;
+    // Uma das condições acima foi encontrada
+    if (strlen(return_msg) != 0) return 0;
+
+
+    // Check if higher bid exists
+    struct dirent **filelist;
+    int n_entries;
+    sprintf(path, "%s/AUCTIONS/%03d/BIDS/", proj_path, aid);
+    n_entries = scandir(path, &filelist, 0, alphasort);
+    if (n_entries <= 0) {
+        sprintf(return_msg, "RBD NOK\n");
+        return 0;
+    }
+    if (n_entries > 2) {
+        sscanf(filelist[n_entries-1]->d_name, "%06d.txt", &highest_bid);
+        if (value <= highest_bid) {  // bid inferior
+            sprintf(return_msg, "RLI REF\n");
+            return 0;
+        }
+    }
+
+    // Create file
+    int bid_fd;
+    sprintf(path, "%s/AUCTIONS/%03d/BIDS/%06d.txt", proj_path, aid, value);
+    if ((bid_fd = open(path, O_WRONLY | O_CREAT, 0777)) == -1) {
+        puts("ERROR: Could not create file.");
+        sprintf(return_msg, "RBD NOK\n");
+        return -1;
+    }
+    if (DEBUG) puts("Created bid file. ");
+
+    // Get current time
+    time_t time_now;
+    struct tm *time_info;
+    time(&time_now);
+    time_info = localtime(&time_now);
+    strftime(datetime, 128, "%Y-%m-%d %X", time_info);
+
+    // Get auction start time
+    time_t time_start;
+    sprintf(path, "%s/AUCTIONS/%03d/START_%03d.txt", proj_path, aid, aid);
+    if ((start_fd = open(path, O_RDONLY)) == -1) return -1;
+    read(start_fd, start_content, 128);
+    sscanf(start_content, "%*d %*s %*s %*d %*d %*s %*s %ld", &time_start);
+    close(start_fd);
+
+    printf("---->%d\n", time_start);
+    // Write file contents
+    sprintf(bid_content, "%d %d %s %ld\n", uid, value, datetime,
+            time_now - time_start);
+    write(bid_fd, bid_content, strlen(bid_content));
+
+    close(bid_fd);
+    free(filelist);
+
+    sprintf(return_msg, "RBD OK\n");
+    return 1;
 }
 
 int handle_tcp(int fd) {
@@ -579,8 +658,6 @@ int handle_tcp(int fd) {
         tcp_bid(fd, return_msg);
     }
 
-    /* Envia a mensagem recebida (atualmente presente no buffer) para a
-     * socket */
     printf("SERVER MSG: %s", return_msg);
     n = write(fd, return_msg, strlen(return_msg));
     if (n == -1) {
@@ -664,7 +741,7 @@ int main() {
                     if (DEBUG) printf("Handling socket %d...\n", i);
                     int h = handle_tcp(i);
                     if (DEBUG) printf("Finished handling\n");
-                    //close(i);
+                    // close(i);
                     FD_CLR(i, &fds);
                 }
             }
