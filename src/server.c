@@ -17,9 +17,12 @@
 #define DEBUG 1
 #define PORT "58051"
 #define BUF_SIZE 128
-#define A_DESC_MAX_LEN 10 + 1
+#define A_DESC_MAX_LEN 10
 #define A_START_VALUE_MAX_LEN 6
 #define A_DURATION_MAX_LEN 5
+#define A_FILENAME_MAX_LEN 24
+#define A_FILE_SIZE_MAX_VALUE 10000000
+#define A_FILE_SIZE_MAX_LEN 8
 #define PASSWORD_SIZE 9
 
 int fd_udp, fd_tcp, next_aid = 0;
@@ -368,6 +371,80 @@ int init_tcp() {
     return 0;
 }
 
+int show_record(int aid) {
+    char temp_path[128], file_content[128], auction_name[A_DESC_MAX_LEN + 1],
+        asset_fname[A_FILENAME_MAX_LEN + 1], start_datetime[128], temp[16];
+    int start_fd, uid, start_value, timeactive, n, bid_fd;
+    long sec_time;
+
+    sprintf(temp_path, "%s/AUCTIONS/%03d/START_%03d.txt", proj_path, aid, aid);
+    if (!isFileExists(temp_path)) {
+        sprintf(msg, "RRC NOK\n");
+        return 0;
+    }
+
+    // Get start file contents
+    time_t time_start;
+    sprintf(temp_path, "%s/AUCTIONS/%03d/START_%03d.txt", proj_path, aid, aid);
+    if ((start_fd = open(temp_path, O_RDONLY)) == -1) return -1;
+    read(start_fd, file_content, 128);
+    sscanf(file_content, "%d %s %s %d %d %*s %*s %ld", &uid, auction_name,
+           asset_fname, &start_value, &timeactive, &time_start);
+    close(start_fd);
+
+    struct tm *time_info;
+    time(&time_start);
+    time_info = localtime(&time_start);
+    strftime(start_datetime, 128, "%Y-%m-%d %X", time_info);
+
+    sprintf(msg, "RRC OK %d %s %s %d %s %d\n", uid, auction_name, asset_fname,
+            start_value, start_datetime, timeactive);
+    n = sendto(fd_udp, msg, strlen(msg), 0, (struct sockaddr *)&addr, addrlen);
+    if (DEBUG) printf("SERVER MSG: %s", msg);
+    if (n == -1) return -1;
+
+    struct dirent **filelist;
+    int n_entries;
+    sprintf(temp_path, "%s/AUCTIONS/%03d/BIDS/", proj_path, aid);
+    n_entries = scandir(temp_path, &filelist, 0, alphasort);
+    /* printf("files: %d\n",n_entries);
+    for(int k = 0; k < n_entries; k++) {
+        printf("\t%s\n",filelist[k]->d_name);
+    } */
+    if (n_entries < 0) return -1;
+    if (n_entries > 2) {
+        for (int f = 0; f < n_entries; f++) {
+            if (sscanf(filelist[f]->d_name, "%06d.txt", &start_value) != 1)
+                continue;
+            sprintf(temp_path, "%s/AUCTIONS/%03d/BIDS/%s", proj_path, aid,
+                    filelist[f]->d_name);
+            if ((bid_fd = open(temp_path, O_RDONLY)) == -1) return -1;
+            read(bid_fd, file_content, 128);
+            sscanf(file_content, "%06d %d %s %s %ld", &uid, &start_value,
+                   start_datetime, temp, &sec_time);
+            sprintf(msg, "B %d %d %s %s %ld\n", uid, start_value,
+                    start_datetime, temp, sec_time);
+            close(bid_fd);
+            n = sendto(fd_udp, msg, strlen(msg), 0, (struct sockaddr *)&addr,
+                       addrlen);
+            if (DEBUG) printf("SERVER MSG: %s", msg);
+            if (n == -1) return -1;
+        }
+    }
+    sprintf(temp_path, "%s/AUCTIONS/%03d/END_%03d.txt", proj_path, aid, aid);
+    if (isFileExists(temp_path)) {
+        if ((bid_fd = open(temp_path, O_RDONLY)) == -1) return -1;
+        read(bid_fd, file_content, 128);
+        sprintf(msg, "E %s", file_content);
+        n = sendto(fd_udp, msg, strlen(msg), 0, (struct sockaddr *)&addr,
+                   addrlen);
+        if (DEBUG) printf("SERVER MSG: %s", msg);
+        if (n == -1) return -1;
+    }
+
+    return 0;
+}
+
 int handle_udp() {
     int n, uid;
     addrlen = sizeof(addr);
@@ -391,12 +468,15 @@ int handle_udp() {
     } else if (!strcmp(temp, "LOU")) {
         // login
         if (sscanf(buffer, "LOU %d %s", &uid, password) == 2) logout_user(uid);
-    }
-
-    else if (!strcmp(temp, "UNR")) {
+    } else if (!strcmp(temp, "UNR")) {
         // unregister
         if (sscanf(buffer, "UNR %d %s", &uid, password) == 2)
             unregister_user(uid);
+    } else if (!strcmp(temp, "SRC")) {
+        int aid;
+        if (sscanf(buffer, "SRC %d", &aid) != 1) sprintf(msg, "RRC NOK\n");
+        show_record(aid);
+        return 0;
     }
 
     printf("SERVER MSG: %s", msg);
@@ -437,7 +517,7 @@ int download_file(int fd, char *fname, int fsize, int newline_index) {
 }
 
 int tcp_opa(int fd, char *return_msg) {
-    char fname[128], aname[A_DESC_MAX_LEN], password[128], a_dir[256],
+    char fname[128], aname[A_DESC_MAX_LEN + 1], password[128], a_dir[256],
         temp[BUF_SIZE];
     int uid, timeactive, fsize, start_value;
 
