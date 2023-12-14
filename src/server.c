@@ -1,4 +1,5 @@
 #include <arpa/inet.h>
+#include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -13,7 +14,6 @@
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
-#include <ctype.h>
 
 #define DEBUG 1
 #define PORT "58051"
@@ -38,20 +38,20 @@ char proj_path[128] = "";
 int input_verified(int uid, char *password) {
     // Count the number of digits in the entered number
     int count_digits = 0;
-    int temp = uid; // Temporary variable to store the number
+    int temp = uid;  // Temporary variable to store the number
 
     while (temp != 0) {
         temp /= 10;
         ++count_digits;
     }
 
-    if(count_digits!=6 || strlen(password) != 8) {
+    if (count_digits != 6 || strlen(password) != 8) {
         return 0;
     }
 
     while (*password) {
         if (!isalnum(*password)) {
-            return 0; // Not alphanumeric
+            return 0;  // Not alphanumeric
         }
         password++;
     }
@@ -423,12 +423,14 @@ int show_record(int aid) {
     time_info = localtime(&time_start);
     strftime(start_datetime, 128, "%Y-%m-%d %X", time_info);
 
+    // Send response
     sprintf(msg, "RRC OK %d %s %s %d %s %d\n", uid, auction_name, asset_fname,
             start_value, start_datetime, timeactive);
     n = sendto(fd_udp, msg, strlen(msg), 0, (struct sockaddr *)&addr, addrlen);
     if (DEBUG) printf("SERVER MSG: %s", msg);
     if (n == -1) return -1;
 
+    // List bids
     struct dirent **filelist;
     int n_entries;
     sprintf(temp_path, "%s/AUCTIONS/%03d/BIDS/", proj_path, aid);
@@ -459,6 +461,8 @@ int show_record(int aid) {
             if (n == -1) return -1;
         }
     }
+
+    // Send end message if auction ended
     sprintf(temp_path, "%s/AUCTIONS/%03d/END_%03d.txt", proj_path, aid, aid);
     if (is_File_Exists(temp_path)) {
         if ((bid_fd = open(temp_path, O_RDONLY)) == -1) return -1;
@@ -472,6 +476,41 @@ int show_record(int aid) {
         if (n == -1) return -1;
     }
 
+    return 0;
+}
+
+int my_bids(int uid) {
+    char temp_path[128];
+    int aid;
+
+    if (!is_logged_in(uid)) {
+        sprintf(msg, "RMB NLG\n");
+        return 0;
+    }
+
+    sprintf(msg, "RMB OK");
+    // List bids
+    struct dirent **filelist;
+    int n_entries;
+    sprintf(temp_path, "%s/USERS/%03d/BIDDED", proj_path, uid);
+    n_entries = scandir(temp_path, &filelist, 0, alphasort);
+
+    if (n_entries < 0) return -1;
+    if (n_entries > 2) {
+        for (int f = 0; f < n_entries; f++) {
+            if (sscanf(filelist[f]->d_name, "%03d.txt", &aid) != 1) continue;
+
+            sprintf(temp_path, "%s/AUCTIONS/%03d/END_%03d.txt", proj_path, aid,
+                    aid);
+
+            sprintf(msg, "%s %06d %d\n", msg, aid, !is_File_Exists(temp_path));
+            n = sendto(fd_udp, msg, strlen(msg), 0, (struct sockaddr *)&addr,
+                       addrlen);
+            if (DEBUG) printf("SERVER MSG: %s", msg);
+            if (n == -1) return -1;
+        }
+    }
+    sprintf(msg, "%s\n", msg);
     return 0;
 }
 
@@ -493,37 +532,41 @@ int handle_udp() {
     sscanf(buffer, "%s ", temp);
     if (!strcmp(temp, "LIN")) {
         // login
-        if (sscanf(buffer, "LIN %d %s", &uid, password) == 2 && input_verified(uid,password)) {
+        if (sscanf(buffer, "LIN %d %s", &uid, password) == 2 &&
+            input_verified(uid, password)) {
             login_user(uid, password);
-        }
-        else {
+        } else {
             return -1;
         }
     } else if (!strcmp(temp, "LOU")) {
         // logout
-        if (sscanf(buffer, "LOU %d %s", &uid, password) == 2 && input_verified(uid,password)) {
+        if (sscanf(buffer, "LOU %d %s", &uid, password) == 2 &&
+            input_verified(uid, password)) {
             logout_user(uid);
-        }
-        else {
+        } else {
             return -1;
         }
     }
 
     else if (!strcmp(temp, "UNR")) {
         // unregister
-        if (sscanf(buffer, "UNR %d %s", &uid, password) == 2 && input_verified(uid,password))
+        if (sscanf(buffer, "UNR %d %s", &uid, password) == 2 &&
+            input_verified(uid, password))
             unregister_user(uid);
     } else if (!strcmp(temp, "SRC")) {
         int aid;
         if (sscanf(buffer, "SRC %d", &aid) != 1) sprintf(msg, "RRC NOK\n");
         show_record(aid);
         return 0;
-    }
-    else {
+    } else if (!strcmp(temp, "LMB")) {
+        int uid;
+        if (sscanf(buffer, "LMB %d", &uid) != 1) sprintf(msg, "RMB NOK\n");
+        my_bids(uid);
+    } else {
         return -1;
     }
 
-    // implement the other udp commands 
+    // implement the other udp commands
 
     printf("SERVER MSG: %s", msg);
     n = sendto(fd_udp, msg, strlen(msg) + 1, 0, (struct sockaddr *)&addr,
@@ -622,8 +665,8 @@ int tcp_opa(int fd, char *return_msg) {
     if (DEBUG) puts("Created bids folder.\n");
 
     // Update User Hosted
-    sprintf(file_path,"USERS/%d/HOSTED/%03d.txt",uid,next_aid);
-    create_file(file_path,"");
+    sprintf(file_path, "USERS/%d/HOSTED/%03d.txt", uid, next_aid);
+    create_file(file_path, "");
 
     sprintf(return_msg, "ROA OK\n");
     // write(fd, return_msg, 127);
@@ -791,8 +834,8 @@ int tcp_bid(int fd, char *return_msg) {
     free(filelist);
 
     // Update User Bidded
-    sprintf(path,"USERS/%d/BIDDED/%03d.txt",uid,aid);
-    create_file(path,"");
+    sprintf(path, "USERS/%d/BIDDED/%03d.txt", uid, aid);
+    create_file(path, "");
 
     sprintf(return_msg, "RBD OK\n");
     return 1;
