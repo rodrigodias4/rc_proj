@@ -93,7 +93,7 @@ int CreateInitialDirs() {
 
 int remove_auction(int aid) {
     char a_dir[256];
-    sprintf(a_dir, "%s/AUCTIONS/%d/", proj_path, aid);
+    sprintf(a_dir, "%s/AUCTIONS/%03d/", proj_path, aid);
     DIR *theFolder = opendir(a_dir);
     struct dirent *next_file;
     char filepath[256];
@@ -494,6 +494,11 @@ int tcp_opa(int fd, char *return_msg) {
     sprintf(file_path, "%s/BIDS/", a_dir);
     mkdir(file_path, 0700);
     if (DEBUG) puts("Created bids folder.\n");
+
+    // Update User Hosted
+    sprintf(file_path,"USERS/%d/HOSTED/%03d.txt",uid,next_aid);
+    create_file(file_path,"");
+
     sprintf(return_msg, "ROA OK\n");
     // write(fd, return_msg, 127);
     next_aid++;
@@ -571,7 +576,7 @@ int tcp_sas(int fd, char *return_msg) {
     char fbuf[1024] = "", fname[128] = "*file name*", fpath[128] = "";
     if (sscanf(buffer, "SAS %d", &aid) != 1) return -1;
     if (!auction_exists(aid)) return -1;
-    sprintf(fpath, "AUCTIONS/%d/%s", aid, fname);
+    sprintf(fpath, "AUCTIONS/%03d/%s", aid, fname);
     if (!isFileExists(fpath)) return -1;
 
     sprintf(return_msg, "RSA OK %s %d\n", fname, fsize);
@@ -658,6 +663,10 @@ int tcp_bid(int fd, char *return_msg) {
 
     close(bid_fd);
     free(filelist);
+
+    // Update User Bidded
+    sprintf(path,"USERS/%d/BIDDED/%03d.txt",uid,aid);
+    create_file(path,"");
 
     sprintf(return_msg, "RBD OK\n");
     return 1;
