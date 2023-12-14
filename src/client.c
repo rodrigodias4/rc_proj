@@ -282,6 +282,10 @@ int parse_msg_udp(char *buffer, char *msg) {
 int cls(char *buffer, char *msg) {
     int aid;
     if (sscanf(buffer, "close %d", &aid) != 1) return -1;
+    if(!has_uid_pwd()) {
+        puts("close: You have to log in first.");
+        return -1;
+    }
     if (!valid_aid(aid)) {
         puts("close: invalid AID");
         return -1;

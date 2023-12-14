@@ -120,8 +120,13 @@ int is_logged_in(int uid) {
 }
 
 int password_correct(int uid, char *password) {
-    // TODO
-    return 1;
+    char path[128], temp[9];
+    sprintf(path, "%s/USERS/%03d/%03d_pass.txt", proj_path, uid, uid);
+    int start_fd;
+    start_fd = open(path, O_RDONLY);
+    read(start_fd, temp, 8);
+    close(start_fd);
+    return !strcmp(password, temp);
 }
 
 int LoginUser(int uid, char *password) {
@@ -502,8 +507,14 @@ int auction_exists(int aid) {
 }
 
 int auction_owned_by(int aid, int uid) {
-    // TODO
-    return 0;
+    char path[128], temp[128];
+    sprintf(path, "%s/AUCTIONS/%03d/START_%03d.txt", proj_path, aid, aid);
+    int start_fd, auction_uid;
+    start_fd = open(path, O_RDONLY);
+    read(start_fd, temp, 128);
+    sscanf(temp, "%d", &auction_uid);
+    close(start_fd);
+    return auction_uid == uid;
 }
 
 int auction_ended(int aid) {
@@ -513,8 +524,8 @@ int auction_ended(int aid) {
 }
 
 int tcp_cls(char *return_msg) {
-    char password[PASSWORD_SIZE];
-    int uid, aid;
+    char password[PASSWORD_SIZE], datetime[128], path[128], file_content[128];
+    int uid, aid, start_fd, end_fd;
     if (sscanf(buffer, "CLS %d %s %d", &uid, password, &aid) != 3) return -1;
     if (!is_logged_in(uid)) {
         sprintf(return_msg, "RCL NLG\n");
@@ -522,11 +533,35 @@ int tcp_cls(char *return_msg) {
         sprintf(return_msg, "RCL EAU\n");
     } else if (!auction_owned_by(aid, uid)) {
         sprintf(return_msg, "RCL EOW\n");
-    } else if (!auction_ended(aid)) {
+    } else if (auction_ended(aid)) {
         sprintf(return_msg, "RCL END\n");
-    } else {
-        sprintf(return_msg, "RCL OK\n");
     }
+
+    if (strlen(return_msg) > 0) return 0;
+
+    // Get current time
+    time_t time_now;
+    struct tm *time_info;
+    time(&time_now);
+    time_info = localtime(&time_now);
+    strftime(datetime, 128, "%Y-%m-%d %X", time_info);
+
+    // Get auction start time
+    time_t time_start;
+    sprintf(path, "%s/AUCTIONS/%03d/START_%03d.txt", proj_path, aid, aid);
+    if ((start_fd = open(path, O_RDONLY)) == -1) return -1;
+    read(start_fd, file_content, 128);
+    sscanf(file_content, "%*d %*s %*s %*d %*d %*s %*s %ld", &time_start);
+    close(start_fd);
+
+    // Write file contents
+    sprintf(path, "%s/AUCTIONS/%03d/END_%03d.txt", proj_path, aid, aid);
+    if ((end_fd = open(path, O_WRONLY | O_CREAT, 0777)) == -1) return -1;
+    sprintf(file_content, "%s %ld\n", datetime, time_now - time_start);
+    write(end_fd, file_content, strlen(file_content));
+    close(end_fd);
+
+    sprintf(return_msg, "RCL OK\n");
 
     return 0;
 }
@@ -559,20 +594,20 @@ int tcp_bid(int fd, char *return_msg) {
     if (sscanf(buffer, "BID %d %s %d %d", &uid, password, &aid, &value) != 4) {
         if (DEBUG) puts("ERROR: bid sscanf");
         sprintf(return_msg, "RBD NOK\n");
-    } else if (!password_correct(uid, password)) {
-        if (DEBUG) puts("Password incorrect");
-        sprintf(return_msg, "RBD NOK\n");
+        /* } else if (!password_correct(uid, password)) {
+            if (DEBUG) puts("Password incorrect");
+            sprintf(return_msg, "RBD NOK\n"); */
     } else if (!is_logged_in(uid)) {
         sprintf(return_msg, "RBD NLG\n");
     } else if (auction_owned_by(aid, uid)) {
         sprintf(return_msg, "RBD ILG\n");
     } else if (!auction_exists(aid) || auction_ended(aid)) {
-        if (DEBUG) printf("ERROR: %d %d",auction_exists(aid),auction_ended(aid));
+        if (DEBUG)
+            printf("ERROR: %d %d", auction_exists(aid), auction_ended(aid));
         sprintf(return_msg, "RBD NOK\n");
     }
     // Uma das condições acima foi encontrada
     if (strlen(return_msg) != 0) return 0;
-
 
     // Check if higher bid exists
     struct dirent **filelist;
@@ -584,7 +619,7 @@ int tcp_bid(int fd, char *return_msg) {
         return 0;
     }
     if (n_entries > 2) {
-        sscanf(filelist[n_entries-1]->d_name, "%06d.txt", &highest_bid);
+        sscanf(filelist[n_entries - 1]->d_name, "%06d.txt", &highest_bid);
         if (value <= highest_bid) {  // bid inferior
             sprintf(return_msg, "RLI REF\n");
             return 0;
@@ -616,7 +651,6 @@ int tcp_bid(int fd, char *return_msg) {
     sscanf(start_content, "%*d %*s %*s %*d %*d %*s %*s %ld", &time_start);
     close(start_fd);
 
-    printf("---->%d\n", time_start);
     // Write file contents
     sprintf(bid_content, "%d %d %s %ld\n", uid, value, datetime,
             time_now - time_start);
