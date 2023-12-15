@@ -503,7 +503,7 @@ int my_bids(int uid) {
             sprintf(temp_path, "%s/AUCTIONS/%03d/END_%03d.txt", proj_path, aid,
                     aid);
 
-            sprintf(msg, "%s %06d %d\n", msg, aid, !is_File_Exists(temp_path));
+            sprintf(msg, "%s %03d %d\n", msg, aid, !is_File_Exists(temp_path));
             n = sendto(fd_udp, msg, strlen(msg), 0, (struct sockaddr *)&addr,
                        addrlen);
             if (DEBUG) printf("SERVER MSG: %s", msg);
@@ -511,6 +511,44 @@ int my_bids(int uid) {
         }
     }
     sprintf(msg, "%s\n", msg);
+    return 0;
+}
+
+int my_auctions(int uid) {
+    char temp_path[128];
+    char aux[128];
+    int aid;
+
+    if (!is_logged_in(uid)) {
+        sprintf(msg, "RMA NLG\n");
+        return 0;
+    }
+
+    // List auctions
+    struct dirent **filelist;
+    int n_entries;
+    sprintf(temp_path, "%s/USERS/%03d/HOSTED", proj_path, uid);
+    n_entries = scandir(temp_path, &filelist, 0, alphasort);
+
+    if (n_entries < 0) return -1;
+    else if (n_entries == 2) {
+        sprintf(msg, "RMA NOK\n");
+        return 0;
+    }
+    sprintf(msg, "RMA OK");
+    for (int f = 0; f < n_entries; f++) {
+        if (sscanf(filelist[f]->d_name, "%03d.txt", &aid) != 1) continue;
+
+        sprintf(temp_path, "%s/AUCTIONS/%03d/END_%03d.txt", proj_path, aid,
+                aid);
+
+        sprintf(aux, " %03d %d", aid, !is_File_Exists(temp_path));
+
+        strcat(msg,aux);
+    }
+    strcat(msg,"\n");
+    n = sendto(fd_udp, msg, strlen(msg), 0, (struct sockaddr *)&addr,addrlen);
+    if (n == -1) return -1;          
     return 0;
 }
 
@@ -558,6 +596,12 @@ int handle_udp() {
         if (sscanf(buffer, "SRC %d", &aid) != 1) sprintf(msg, "RRC NOK\n");
         show_record(aid);
         return 0;
+    } else if (!strcmp(temp, "LMA")) {
+        int uid;
+        if (sscanf(buffer, "LMA %d", &uid) != 1) {
+            return -1;
+        }
+        my_auctions(uid);
     } else if (!strcmp(temp, "LMB")) {
         int uid;
         if (sscanf(buffer, "LMB %d", &uid) != 1) sprintf(msg, "RMB NOK\n");
