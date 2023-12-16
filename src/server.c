@@ -24,7 +24,7 @@
 #define A_FILE_SIZE_MAX_VALUE 10000000
 #define A_FILE_SIZE_MAX_LEN 8
 #define PASSWORD_SIZE 9
-char port[8] = "58011";
+char port[8] = "58051"; //change ????
 int verbose = 0;
 
 int fd_udp, fd_tcp, next_aid = 0;
@@ -36,6 +36,8 @@ char buffer[BUF_SIZE];
 char msg[1024];
 char proj_path[128] = "";
 
+int valid_aid(int aid) { return aid >= 0 && aid <= 999; }
+
 int input_verified(int uid, char *password) {
     // Count the number of digits in the entered number
     int count_digits = 0;
@@ -46,17 +48,22 @@ int input_verified(int uid, char *password) {
         ++count_digits;
     }
 
-    if (count_digits != 6 || strlen(password) != 8) {
+    if (count_digits != 6) {
         return 0;
     }
 
-    while (*password) {
-        if (!isalnum(*password)) {
-            return 0;  // Not alphanumeric
+    if (strcmp(password,"")!=0) {
+        if (strlen(password) != 8) {
+            return 0;
         }
-        password++;
+        while (*password) {
+            if (!isalnum(*password)) {
+                return 0;  // Not alphanumeric
+            }
+            password++;
+        }
+        // All characters are alphanumeric
     }
-    // All characters are alphanumeric
 
     return 1;
 }
@@ -497,19 +504,21 @@ int my_bids(int uid) {
     n_entries = scandir(temp_path, &filelist, 0, alphasort);
 
     if (n_entries < 0) return -1;
-    if (n_entries > 2) {
-        for (int f = 0; f < n_entries; f++) {
-            if (sscanf(filelist[f]->d_name, "%03d.txt", &aid) != 1) continue;
+    else if (n_entries == 2) {
+        sprintf(msg, "RMB NOK\n");
+        return 0;
+    }
+    for (int f = 0; f < n_entries; f++) {
+        if (sscanf(filelist[f]->d_name, "%03d.txt", &aid) != 1) continue;
 
-            sprintf(temp_path, "%s/AUCTIONS/%03d/END_%03d.txt", proj_path, aid,
-                    aid);
+        sprintf(temp_path, "%s/AUCTIONS/%03d/END_%03d.txt", proj_path, aid,
+                aid);
 
-            sprintf(msg, "%s %03d %d\n", msg, aid, !is_File_Exists(temp_path));
-            n = sendto(fd_udp, msg, strlen(msg), 0, (struct sockaddr *)&addr,
-                       addrlen);
-            if (DEBUG) printf("SERVER MSG: %s", msg);
-            if (n == -1) return -1;
-        }
+        sprintf(msg, "%s %03d %d\n", msg, aid, !is_File_Exists(temp_path));
+        n = sendto(fd_udp, msg, strlen(msg), 0, (struct sockaddr *)&addr,
+                    addrlen);
+        if (DEBUG) printf("SERVER MSG: %s", msg);
+        if (n == -1) return -1;
     }
     sprintf(msg, "%s\n", msg);
     return 0;
@@ -562,23 +571,23 @@ int list_auctions() {
     sprintf(temp_path, "%s/AUCTIONS", proj_path);
     n_entries = scandir(temp_path, &filelist, 0, alphasort);
     if (n_entries < 0) return -1;
-    if (n_entries > 2) {
-        sprintf(msg, "RLS OK");
-        for (int f = 0; f < n_entries; f++) {
-            if (sscanf(filelist[f]->d_name, "%03d", &aid) != 1) continue;
-            sprintf(temp_path, "%s/AUCTIONS/%03d/END_%03d.txt", proj_path, aid, aid);
-            sprintf(msg, " %s %d",filelist[f]->d_name,!is_File_Exists(temp_path));
-        }
-        sprintf(msg, "%s\n",msg);
-    } else {
+    else if (n_entries == 2)  {
         sprintf(msg, "RLS NOK\n");
+        return 0;
     }
+    sprintf(msg, "RLS OK");
+    for (int f = 0; f < n_entries; f++) {
+        if (sscanf(filelist[f]->d_name, "%03d", &aid) != 1) continue;
+        sprintf(temp_path, "%s/AUCTIONS/%03d/END_%03d.txt", proj_path, aid, aid);
+        sprintf(msg, " %s %d",filelist[f]->d_name,!is_File_Exists(temp_path));
+    }
+    sprintf(msg, "%s\n",msg);
 
     return 0;
 }
 
 int handle_udp() {
-    int n, uid;
+    int aux, n, uid;
     addrlen = sizeof(addr);
     char temp[BUF_SIZE];
     char password[32];
@@ -597,50 +606,77 @@ int handle_udp() {
         // login
         if (sscanf(buffer, "LIN %d %s", &uid, password) == 2 &&
             input_verified(uid, password)) {
-            login_user(uid, password);
-        } else {
-            return -1;
+            aux = login_user(uid, password);
         }
-    } else if (!strcmp(temp, "LOU")) {
+        else {
+            aux = -1;
+        }
+    } 
+    else if (!strcmp(temp, "LOU")) {
         // logout
         if (sscanf(buffer, "LOU %d %s", &uid, password) == 2 &&
             input_verified(uid, password)) {
-            logout_user(uid);
-        } else {
-            return -1;
+            aux = logout_user(uid);
         }
+        else {
+            aux = -1;
+        } 
     }
 
     else if (!strcmp(temp, "UNR")) {
         // unregister
         if (sscanf(buffer, "UNR %d %s", &uid, password) == 2 &&
-            input_verified(uid, password))
-            unregister_user(uid);
-    } else if (!strcmp(temp, "SRC")) {
-        int aid;
-        if (sscanf(buffer, "SRC %d", &aid) != 1) sprintf(msg, "RRC NOK\n");
-        show_record(aid);
-        return 0;
-    } else if (!strcmp(temp, "LMA")) {
-        int uid;
-        if (sscanf(buffer, "LMA %d", &uid) != 1) {
-            return -1;
+            input_verified(uid, password)) {
+            aux = unregister_user(uid);
         }
-        my_auctions(uid);
-    } else if (!strcmp(temp, "LMB")) {
+        else {
+            aux = -1;
+        }
+    } 
+    else if (!strcmp(temp, "SRC")) {
+        int aid;
+        if (sscanf(buffer, "SRC %d", &aid) == 1 && 
+            valid_aid(aid)) {
+            aux = show_record(aid);
+        }
+        else {
+            aux = -1;
+        }
+    } 
+    else if (!strcmp(temp, "LMA")) {
         int uid;
-        if (sscanf(buffer, "LMB %d", &uid) != 1) sprintf(msg, "RMB NOK\n");
-        my_bids(uid);
-    } else if (!strcmp(temp, "LST")) {
-        list_auctions();
-    } else {
-        return -1;
+        if (sscanf(buffer, "LMA %d", &uid) == 1 &&
+            input_verified(uid, "")) {
+            aux = my_auctions(uid);
+        }
+        else {
+            aux = -1;
+        }
+    } 
+    else if (!strcmp(temp, "LMB")) {
+        int uid;
+        if (sscanf(buffer, "LMB %d", &uid) == 1 &&
+            input_verified(uid, "")) {
+            aux = my_bids(uid);
+        }
+        else {
+            aux = -1;
+        }
+    } 
+    else if (!strcmp(temp, "LST")) {
+        aux = list_auctions();
+    } 
+    else {
+        aux = -1;
     } 
 
     // implement the other udp commands
+    if (aux==-1) {
+        strcpy(msg,"ERR\n"); //CHECK??
+    }
 
     printf("SERVER MSG: %s", msg);
-    n = sendto(fd_udp, msg, strlen(msg) + 1, 0, (struct sockaddr *)&addr,
+    n = sendto(fd_udp, msg, strlen(msg), 0, (struct sockaddr *)&addr,
                addrlen);
 
     if (n == -1) return -1;
@@ -682,7 +718,8 @@ int tcp_opa(int fd, char *return_msg) {
     int uid, timeactive, fsize, start_value;
 
     if (sscanf(buffer, "OPA %d %s %s %d %d %s %d", &uid, password, aname,
-               &start_value, &timeactive, fname, &fsize) != 7)
+        &start_value, &timeactive, fname, &fsize) != 7 || !input_verified(uid,password) ||
+        strlen(aname) > 10 || start_value > 999999 || timeactive > 99999 || strlen(fname) > 24 || fsize > 99999999 )
         return -1;
     if (!password_correct(uid, password))  // TODO
         return 0;
@@ -771,7 +808,8 @@ int auction_ended(int aid) {
 int tcp_cls(char *return_msg) {
     char password[PASSWORD_SIZE], datetime[128], path[128], file_content[128];
     int uid, aid, start_fd, end_fd;
-    if (sscanf(buffer, "CLS %d %s %d", &uid, password, &aid) != 3) return -1;
+    if (sscanf(buffer, "CLS %d %s %d", &uid, password, &aid) != 3 ||
+        !input_verified(uid,password) || !valid_aid(aid)) return -1;
     if (!is_logged_in(uid)) {
         sprintf(return_msg, "RCL NLG\n");
     } else if (!auction_exists(aid)) {
@@ -814,7 +852,7 @@ int tcp_cls(char *return_msg) {
 int tcp_sas(int fd, char *return_msg) {
     int aid, fsize = 0;
     char fbuf[1024] = "", fname[128] = "*file name*", fpath[128] = "";
-    if (sscanf(buffer, "SAS %d", &aid) != 1) return -1;
+    if (sscanf(buffer, "SAS %d", &aid) != 1 || !valid_aid(aid)) return -1;
     if (!auction_exists(aid)) return -1;
     sprintf(fpath, "AUCTIONS/%03d/%s", aid, fname);
     if (!is_File_Exists(fpath)) return -1;
@@ -836,9 +874,10 @@ int tcp_bid(int fd, char *return_msg) {
         start_content[128];
     int uid, aid, success, value, highest_bid, start_fd;
 
-    if (sscanf(buffer, "BID %d %s %d %d", &uid, password, &aid, &value) != 4) {
+    if (sscanf(buffer, "BID %d %s %d %d", &uid, password, &aid, &value) != 4 ||
+        !input_verified(uid,password) || !valid_aid(aid)) {
         if (DEBUG) puts("ERROR: bid sscanf");
-        sprintf(return_msg, "RBD NOK\n");
+        return -1;
         /* } else if (!password_correct(uid, password)) {
             if (DEBUG) puts("Password incorrect");
             sprintf(return_msg, "RBD NOK\n"); */
@@ -860,8 +899,7 @@ int tcp_bid(int fd, char *return_msg) {
     sprintf(path, "%s/AUCTIONS/%03d/BIDS/", proj_path, aid);
     n_entries = scandir(path, &filelist, 0, alphasort);
     if (n_entries <= 0) {
-        sprintf(return_msg, "RBD NOK\n");
-        return 0;
+        return -1;
     }
     if (n_entries > 2) {
         sscanf(filelist[n_entries - 1]->d_name, "%06d.txt", &highest_bid);
@@ -876,7 +914,6 @@ int tcp_bid(int fd, char *return_msg) {
     sprintf(path, "%s/AUCTIONS/%03d/BIDS/%06d.txt", proj_path, aid, value);
     if ((bid_fd = open(path, O_WRONLY | O_CREAT, 0777)) == -1) {
         puts("ERROR: Could not create file.");
-        sprintf(return_msg, "RBD NOK\n");
         return -1;
     }
     if (DEBUG) puts("Created bid file. ");
@@ -913,6 +950,7 @@ int tcp_bid(int fd, char *return_msg) {
 }
 
 int handle_tcp(int fd) {
+    int aux;
     char temp[BUF_SIZE];
     char return_msg[BUF_SIZE] = "";
     /* Já conectado, o cliente então escreve algo para a sua socket.
@@ -927,18 +965,21 @@ int handle_tcp(int fd) {
     printf("TCP | fd:%d\t| Received %zd bytes | %s\n", fd, n, buffer);
     sscanf(buffer, "%s ", temp);
     if (!strcmp(temp, "OPA")) {
-        if (tcp_opa(fd, return_msg) == -1) {
-            sprintf(return_msg, "ROA NOK\n");
+        aux = tcp_opa(fd, return_msg);
+        if (aux==-1) {
+            sprintf(return_msg, "ROA NLG\n");
+            aux=0;
         }
     } else if (!strcmp(temp, "CLS")) {
-        if (tcp_cls(return_msg) == -1) sprintf(return_msg, "RCL NOK\n");
+        aux = tcp_cls(return_msg);
     } else if (!strcmp(temp, "SAS")) {
-        if (tcp_sas(fd, return_msg) == -1)
-            sprintf(return_msg, "RSA NOK\n");
-        else
-            return 0;
+        aux = tcp_sas(fd, return_msg);
     } else if (!strcmp(temp, "BID")) {
-        tcp_bid(fd, return_msg);
+        aux = tcp_bid(fd, return_msg);
+    }
+
+    if (aux==-1) {
+        strcpy(return_msg,"ERR\n"); //CHECK??
     }
 
     printf("SERVER MSG: %s", return_msg);

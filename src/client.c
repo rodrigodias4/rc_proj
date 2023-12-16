@@ -387,7 +387,7 @@ int parse_msg_tcp(char *buffer, char *msg) {
 
     sscanf(buffer, "%s ", temp);
     if (!strcmp(temp, "open")) {
-        if (opa(buffer, msg) == 1) return -1;
+        if (opa(buffer, msg) == -1) return -1;
     } else if (!strcmp(temp, "close")) {
         if (cls(buffer, msg) == -1) return -1;
     } else if (!strcmp(temp, "show_asset") || !strcmp(temp, "sa")) {
