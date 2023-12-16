@@ -16,7 +16,6 @@
 #include <unistd.h>
 
 #define DEBUG 1
-#define PORT "58051"
 #define BUF_SIZE 128
 #define A_DESC_MAX_LEN 10
 #define A_START_VALUE_MAX_LEN 6
@@ -25,6 +24,8 @@
 #define A_FILE_SIZE_MAX_VALUE 10000000
 #define A_FILE_SIZE_MAX_LEN 8
 #define PASSWORD_SIZE 9
+char port[8] = "58011";
+int verbose = 0;
 
 int fd_udp, fd_tcp, next_aid = 0;
 ssize_t n;
@@ -369,7 +370,7 @@ int init_udp() {
     hints_udp.ai_flags = AI_PASSIVE;
 
     /* Ao passar o endereço 'NULL', indicamos que somos nós o Host. */
-    if (getaddrinfo(NULL, PORT, &hints_udp, &res_udp) != 0) exit(1);
+    if (getaddrinfo(NULL, port, &hints_udp, &res_udp) != 0) exit(1);
 
     /* Quando uma socket é criada, não tem um endereço associado.
     Esta função serve para associar um endereço à socket, de forma a ser
@@ -389,7 +390,7 @@ int init_tcp() {
     hints_tcp.ai_socktype = SOCK_STREAM;
     hints_tcp.ai_flags = AI_PASSIVE;
 
-    if (getaddrinfo(NULL, PORT, &hints_tcp, &res_tcp) != 0) exit(1);
+    if (getaddrinfo(NULL, port, &hints_tcp, &res_tcp) != 0) exit(1);
 
     if (bind(fd_tcp, res_tcp->ai_addr, res_tcp->ai_addrlen) == -1) exit(1);
     if (listen(fd_tcp, 10) < 0) exit(1);
@@ -552,6 +553,30 @@ int my_auctions(int uid) {
     return 0;
 }
 
+int list_auctions() {
+    char temp_path[128];
+    int aid;
+    // List auctions
+    struct dirent **filelist;
+    int n_entries;
+    sprintf(temp_path, "%s/AUCTIONS", proj_path);
+    n_entries = scandir(temp_path, &filelist, 0, alphasort);
+    if (n_entries < 0) return -1;
+    if (n_entries > 2) {
+        sprintf(msg, "RLS OK");
+        for (int f = 0; f < n_entries; f++) {
+            if (sscanf(filelist[f]->d_name, "%03d", &aid) != 1) continue;
+            sprintf(temp_path, "%s/AUCTIONS/%03d/END_%03d.txt", proj_path, aid, aid);
+            sprintf(msg, " %s %d",filelist[f]->d_name,!is_File_Exists(temp_path));
+        }
+        sprintf(msg, "%s\n",msg);
+    } else {
+        sprintf(msg, "RLS NOK\n");
+    }
+
+    return 0;
+}
+
 int handle_udp() {
     int n, uid;
     addrlen = sizeof(addr);
@@ -606,9 +631,11 @@ int handle_udp() {
         int uid;
         if (sscanf(buffer, "LMB %d", &uid) != 1) sprintf(msg, "RMB NOK\n");
         my_bids(uid);
+    } else if (!strcmp(temp, "LST")) {
+        list_auctions();
     } else {
         return -1;
-    }
+    } 
 
     // implement the other udp commands
 
@@ -941,7 +968,18 @@ int accept_tcp() {
     return newfd;
 }
 
-int main() {
+int main(int argc, char **argv) {
+        if (argc > 1) {
+        for (int i = 1; i < argc && i < 4; i += 2) {
+            if (!strcmp(argv[i], "-n") && (argc > i + 1)) {
+                strcpy(port, argv[i + 1]);
+            }
+            if (!strcmp(argv[i], "-v")) {
+                verbose = 1;
+            }
+        }
+    }
+
     int fd_new, max_fd = 0;
     getcwd(proj_path, 1024);
 
