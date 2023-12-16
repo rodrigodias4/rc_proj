@@ -152,8 +152,10 @@ int is_File_Exists(const char *filename) {
 }
 
 int is_logged_in(int uid) {
-    // TODO
-    return 1;
+    char login_path[BUF_SIZE];
+    sprintf(login_path, "USERS/%d/%d_login.txt", uid, uid);
+    int file_exists = is_File_Exists(login_path);
+    return file_exists;
 }
 
 int password_correct(int uid, char *password) {
@@ -904,7 +906,7 @@ int tcp_bid(int fd, char *return_msg) {
     if (n_entries > 2) {
         sscanf(filelist[n_entries - 1]->d_name, "%06d.txt", &highest_bid);
         if (value <= highest_bid) {  // bid inferior
-            sprintf(return_msg, "RLI REF\n");
+            sprintf(return_msg, "RBD REF\n");
             return 0;
         }
     }
@@ -945,7 +947,7 @@ int tcp_bid(int fd, char *return_msg) {
     sprintf(path, "USERS/%d/BIDDED/%03d.txt", uid, aid);
     create_file(path, "");
 
-    sprintf(return_msg, "RBD OK\n");
+    sprintf(return_msg, "RBD ACC\n");
     return 1;
 }
 
@@ -967,7 +969,7 @@ int handle_tcp(int fd) {
     if (!strcmp(temp, "OPA")) {
         aux = tcp_opa(fd, return_msg);
         if (aux==-1) {
-            sprintf(return_msg, "ROA NLG\n");
+            sprintf(return_msg, "ROA NOK\n");
             aux=0;
         }
     } else if (!strcmp(temp, "CLS")) {
