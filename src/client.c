@@ -97,7 +97,7 @@ int handle_udp_server_msg(char *msg) {
             if (!strcmp(status, "OK")) {
                 printf("User logged in successfully.\n");
             }
-            if (!strcmp(status, "REG")) {
+            else if (!strcmp(status, "REG")) {
                 printf("User registered successfully.\n");
             }
             else {
@@ -113,7 +113,7 @@ int handle_udp_server_msg(char *msg) {
             if (!strcmp(status, "OK")) {
                 printf("User logged out successfully.\n");
             }
-            if (!strcmp(status, "NOK")) {
+            else if (!strcmp(status, "NOK")) {
                 printf("User is not logged in.\n");
             }
             else if (!strcmp (status,"UNR")) {
@@ -134,7 +134,7 @@ int handle_udp_server_msg(char *msg) {
             if (!strcmp(status, "OK")) {
                 printf("User unregistered successfully.\n");
             }
-            if (!strcmp(status, "NOK")) {
+            else if (!strcmp(status, "NOK")) {
                 printf("User is not logged in.\n");
             }
             else if (!strcmp (status,"UNR")) {
