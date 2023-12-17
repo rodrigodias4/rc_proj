@@ -566,12 +566,11 @@ int my_bids(int uid) {
         int ended = is_File_Exists(temp_path);
         if (!ended) ended = check_auction_timeout(aid);
         sprintf(msg, "%s %03d %d", msg, aid, !ended);
-        n = sendto(fd_udp, msg, strlen(msg), 0, (struct sockaddr *)&addr,
-                   addrlen);
         if (DEBUG) printf("SERVER MSG: %s", msg);
         if (n == -1) return -1;
     }
     sprintf(msg, "%s\n\n", msg);
+    n = sendto(fd_udp, msg, strlen(msg), 0, (struct sockaddr *)&addr, addrlen);
     return 0;
 }
 
@@ -1008,6 +1007,18 @@ int tcp_bid(char *return_msg) {
     if (n_entries > 2) {
         sscanf(filelist[n_entries - 1]->d_name, "%06d.txt", &highest_bid);
         if (value <= highest_bid) {  // bid inferior
+            sprintf(return_msg, "RBD REF\n\n");
+            return 0;
+        }
+    } else {
+        sprintf(path, "%s/AUCTIONS/%03d/START_%03d.txt", proj_path, aid, aid);
+        if ((start_fd = open(path, O_RDONLY)) == -1) return -1;
+        read(start_fd, start_content, 128);
+        int start_value;
+        sscanf(start_content, "%*d %*s %*s %d %*d %*s %*s %*ld", &start_value);
+        close(start_fd);
+
+        if (value < start_value) {
             sprintf(return_msg, "RBD REF\n\n");
             return 0;
         }

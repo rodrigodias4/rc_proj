@@ -491,6 +491,8 @@ void responses_tcp(char *buf_res) {
                 printf("Larger bid already exists.\n");
             } else if (!strcmp(status, "ILG")) {
                 printf("Auction owned by the current user.\n");
+            } else if (!strcmp(status, "NOK")) {
+                printf("Auction is not active.\n");
             } else {
                 printf("Error placing bid.\n");
             }
