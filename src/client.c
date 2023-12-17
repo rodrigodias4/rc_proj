@@ -4,6 +4,7 @@
 #include <math.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,11 +12,8 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include <signal.h>
 #define DEBUG 0
 #define BUF_SIZE 128
-#define TRIM 1
-#define NO_TRIM 0
 #define PASSWORD_SIZE 9
 
 #define A_DESC_MAX_LEN 10
@@ -96,11 +94,9 @@ int handle_udp_server_msg(char *msg) {
         if (sscanf(msg, "RLI %s", status) == 1) {
             if (!strcmp(status, "OK")) {
                 printf("User logged in successfully.\n");
-            }
-            else if (!strcmp(status, "REG")) {
+            } else if (!strcmp(status, "REG")) {
                 printf("User registered successfully.\n");
-            }
-            else {
+            } else {
                 uid = 0;
                 strcpy(password, "");
                 printf("An error ocurred while logging in.\n");
@@ -112,16 +108,13 @@ int handle_udp_server_msg(char *msg) {
         if (sscanf(msg, "RLO %s", status) == 1) {
             if (!strcmp(status, "OK")) {
                 printf("User logged out successfully.\n");
-            }
-            else if (!strcmp(status, "NOK")) {
+            } else if (!strcmp(status, "NOK")) {
                 printf("User is not logged in.\n");
-            }
-            else if (!strcmp (status,"UNR")) {
+            } else if (!strcmp(status, "UNR")) {
                 uid = 0;
                 strcpy(password, "");
                 printf("User is not registered.");
-            }
-            else {
+            } else {
                 uid = 0;
                 strcpy(password, "");
                 printf("An error ocurred while logging out.\n");
@@ -133,16 +126,13 @@ int handle_udp_server_msg(char *msg) {
         if (sscanf(msg, "RUR %s", status) == 1) {
             if (!strcmp(status, "OK")) {
                 printf("User unregistered successfully.\n");
-            }
-            else if (!strcmp(status, "NOK")) {
+            } else if (!strcmp(status, "NOK")) {
                 printf("User is not logged in.\n");
-            }
-            else if (!strcmp (status,"UNR")) {
+            } else if (!strcmp(status, "UNR")) {
                 uid = 0;
                 strcpy(password, "");
                 printf("User is not registered.");
-            }
-            else {
+            } else {
                 uid = 0;
                 strcpy(password, "");
                 printf("An error ocurred while unregistering\n");
@@ -189,7 +179,7 @@ int udp(char *msg) {
                      &addrlen);
         if (n == -1) /*error*/
             exit(1);
-        printf("%s",buf_udp);
+        printf("%s", buf_udp);
     } while (!message_ended(buf_udp, BUF_SIZE));
 
     handle_udp_server_msg(buf_udp);
@@ -234,26 +224,14 @@ int tcp_open() {
     return 0;
 }
 
-int tcp_talk(char *msg, int trim) {
-    /* char buf_tcp[TCP_BUF_SIZE]; */
-    int str_len = strlen(msg);
-    if (trim < 0 || trim > 1) return -1;
+int tcp_talk(char *msg, int size) {
+    if (size < 0) return -1;
     /* Escreve a mensagem para o servidor, especificando o seu
      * tamanho */
-    n = write(fd, msg, trim * (str_len) + (1 - trim) * (BUF_SIZE-1));
+    n = write(fd, msg, size);
     if (n == -1) {
         exit(1);
     }
-
-    /* Lê 128 Bytes do servidor e guarda-os no buffer. */
-    /* n = read(fd, buf_tcp, 128);
-    if (n == -1) {
-        exit(1);
-    } */
-
-    /* Imprime a mensagem "echo" e o conteúdo do buffer (ou seja, o que foi
-    recebido do servidor) para o STDOUT (fd = 1) */
-    /* printf("echo: %s\n", buf_tcp); */
     return 0;
 }
 
@@ -268,7 +246,7 @@ int tcp_close() {
 
 int tcp(char *msg) {
     if (tcp_open() == -1) return -1;
-    if (tcp_talk(msg, TRIM) == -1) return -1;
+    if (tcp_talk(msg, strlen(msg)) == -1) return -1;
     // if (tcp_close() == -1) return -1;
     return 0;
 }
@@ -375,7 +353,7 @@ int cls(char *buffer, char *msg) {
     }
     sprintf(msg, "CLS %d %s %d\n\n", uid, password, aid);
     tcp_open();
-    tcp_talk(msg,1);
+    tcp_talk(msg, strlen(msg));
 
     return 0;
 }
@@ -423,23 +401,23 @@ int opa(char *buffer, char *msg) {
     sprintf(msg, "OPA %d %s %s %d %d %s %d\n", uid, password, description,
             start_value, time_active, img_fname, fsize);
     tcp_open();
-    tcp_talk(msg,1);
+    tcp_talk(msg, strlen(msg));  // send text before file
     int file_to_send;
     if ((file_to_send = open(img_fname, O_RDONLY)) < 0) return -1;
     remaining = fsize;
 
-    tcp_talk(msg, TRIM);  // send text before file
     while (remaining > 0) {
+        memset(msg, 0, BUF_SIZE);
         /* if (DEBUG)
             printf("open: Sending file %s | %d bytes remaining \n", img_fname,
                    remaining); */
-        n = read(file_to_send, msg, BUF_SIZE-1);
+        n = read(file_to_send, msg, BUF_SIZE - 1);
         if (n <= 0) break;
 
-        tcp_talk(msg, NO_TRIM);
-        remaining -= BUF_SIZE-1;
+        tcp_talk(msg, n);
+        remaining -= BUF_SIZE - 1;
     }
-    tcp_talk("\n\n", NO_TRIM);
+    /* tcp_talk("\n\n", 2); */
 
     if (DEBUG) printf("Finished uploading file %s\n", img_fname);
     return 0;
@@ -454,7 +432,7 @@ int sas(char *buffer, char *msg, char *temp) {
     }
     sprintf(msg, "SAS %d\n\n", aid);
     tcp_open();
-    tcp_talk(msg, 1);
+    tcp_talk(msg, strlen(msg));
     return 0;
 }
 
@@ -465,7 +443,7 @@ int bid(char *buffer, char *msg) {
 
     sprintf(msg, "BID %d %s %d %d\n\n", uid, password, aid, value);
     tcp_open();
-    tcp_talk(msg,1);
+    tcp_talk(msg, strlen(msg));
     return 0;
 }
 
@@ -491,32 +469,40 @@ int parse_msg_tcp(char *buffer, char *msg) {
     }
     if (DEBUG) printf("%s", msg);
 
-    int n = read(fd, buf_tcp, BUF_SIZE-1);
-        if (DEBUG) printf("READ %d BYTES\n", n);
-        printf("%s", buf_tcp);
+    int n = read(fd, buf_tcp, BUF_SIZE - 1);
+    if (DEBUG) printf("READ %d BYTES -> %s\n", n, buf_tcp);
+
     int fsize;
-    if(sa) {
+    if (sa) {
         char fname[25];
         if (sscanf(buf_tcp, "RSA OK %s %d", fname, &fsize) != 2) return 0;
-        mkdir("DOWNLOADS",0777);
-        sprintf(fpath, "DOWNLOADS/%s",fname);
-        if ((asset_fd = open(fpath, O_WRONLY | O_CREAT | O_TRUNC, 0777)) == -1) return -1;
-        int spaces = 0;
-        int i;
-        for (i = 0; spaces < 3 && i < n; i++) {
-            if (buf_tcp[i] == ' ') spaces++;
+        mkdir("DOWNLOADS", 0777);
+        sprintf(fpath, "DOWNLOADS/%s", fname);
+        if ((asset_fd = open(fpath, O_WRONLY | O_CREAT | O_TRUNC, 0777)) ==
+            -1) {
+            if (DEBUG) printf("Error creating asset file");
+            return -1;
         }
-        if (spaces < 4) return -1;
-        write(asset_fd, &buf_tcp[i],BUF_SIZE-i-1);
+        int i;
+        for (i = 0; i < n; i++) {
+            if (buf_tcp[i] == '\n') {
+                i++;
+                break;
+            }
+        }
+        if (i < n) {
+            n = write(asset_fd, &(buf_tcp[i]), strlen(&(buf_tcp[i])));
+            fsize -= n;
+        }
     }
     do {
         memset(buf_tcp, 0, BUF_SIZE);
-        int n = read(fd, buf_tcp, BUF_SIZE-1);
-        if (n<0) break;
+        n = read(fd, buf_tcp, BUF_SIZE - 1);
+        if (n < 0) break;
         if (DEBUG) printf("READ %d BYTES\n", n);
         /* printf("%s", buf_tcp); */
         if (sa) {
-            write(asset_fd, buf_tcp,n);
+            write(asset_fd, buf_tcp, n);
         }
         fsize -= n;
     } while (!message_ended(buf_tcp, n) && n > 0 && fsize > 0);

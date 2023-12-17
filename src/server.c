@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,7 +15,6 @@
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
-#include <signal.h>
 
 #define DEBUG 0
 #define BUF_SIZE 128
@@ -40,9 +40,10 @@ fd_set fds;
 
 void int_handler() {
     for (int i = 0; i <= max_fd; i++) {
-            if (FD_ISSET(i, &fds)) {
-                close(i);
-            }}
+        if (FD_ISSET(i, &fds)) {
+            close(i);
+        }
+    }
     exit(0);
 }
 
@@ -424,18 +425,10 @@ int init_udp() {
     memset(&hints_udp, 0, sizeof hints_udp);
     hints_udp.ai_family = AF_INET;
     hints_udp.ai_socktype = SOCK_DGRAM;
-    /* É passada uma flag para indicar que o socket é passivo.
-    Esta flag é usada mais tarde pela função 'bind()' e indica que
-    o socket aceita conexões. */
     hints_udp.ai_flags = AI_PASSIVE;
 
-    /* Ao passar o endereço 'NULL', indicamos que somos nós o Host. */
     if (getaddrinfo(NULL, port, &hints_udp, &res_udp) != 0) exit(1);
 
-    /* Quando uma socket é criada, não tem um endereço associado.
-    Esta função serve para associar um endereço à socket, de forma a ser
-    acessível por conexões externas ao programa. É associado o nosso endereço
-    ('res_udp->ai_addr', definido na chamada à função 'getaddrinfo()').*/
     if (bind(fd_udp, res_udp->ai_addr, res_udp->ai_addrlen) == -1) exit(1);
 
     return 0;
@@ -503,7 +496,7 @@ int show_record(int aid) {
     int last_50 = 0;
     if (n_entries < 0) return -1;
     if (n_entries > 2) {
-        for (int f = n_entries-1; f >= 0 && last_50 < 49; f--) {
+        for (int f = n_entries - 1; f >= 0 && last_50 < 49; f--) {
             if (sscanf(filelist[f]->d_name, "%06d.txt", &start_value) != 1)
                 continue;
             sprintf(temp_path, "%s/AUCTIONS/%03d/BIDS/%s", proj_path, aid,
@@ -521,7 +514,7 @@ int show_record(int aid) {
                        addrlen);
             if (DEBUG) printf("SERVER MSG: %s", msg);
             if (n == -1) return -1;
-            last_50++; 
+            last_50++;
         }
     }
 
@@ -538,8 +531,7 @@ int show_record(int aid) {
         if (DEBUG) printf("SERVER MSG: %s", msg);
         if (n == -1) return -1;
     }
-    n = sendto(fd_udp, "\n\n", 2, 0, (struct sockaddr *)&addr,
-                   addrlen);
+    n = sendto(fd_udp, "\n\n", 2, 0, (struct sockaddr *)&addr, addrlen);
     return 0;
 }
 
@@ -656,10 +648,7 @@ int handle_udp() {
     addrlen = sizeof(addr);
     char temp[BUF_SIZE];
     char password[32];
-    /* Lê da socket (fd_udp) BUF_SIZE bytes e guarda-os no buffer.
-    Existem flags opcionais que não são passadas (0).
-    O endereço do cliente (e o seu tamanho) são guardados para mais tarde
-    devolver o texto */
+
     n = recvfrom(fd_udp, buffer, BUF_SIZE, 0, (struct sockaddr *)&addr,
                  &addrlen);
     if (n == -1) return -1;
@@ -751,30 +740,14 @@ int handle_udp() {
 }
 
 int download_file(int fd, char *fpath, int fsize) {
-    char downloaded[BUF_SIZE], test[128];
-    int i;
+    char downloaded[BUF_SIZE];
     int new_file = open(fpath, O_WRONLY | O_TRUNC | O_CREAT, 0777);
     memset(downloaded, 0, BUF_SIZE);
     if (DEBUG) printf("Created file %s, writing...\n", fpath);
 
-    /* if(sscanf(buffer,"%s",test) == 1 && !strcmp(test,"OPA")){
-        for(i=0; buffer[i] != '\n';i++){}
-        i++;
-        printf("----->%d %s\n",i, &(buffer[i]));
-        write(new_file,&buffer[i], BUF_SIZE-1-i);
-        fsize -= BUF_SIZE-1-i;
-    } */
     while (fsize > 0) {
         memset(downloaded, 0, BUF_SIZE);
         n = read(fd, downloaded, 127);
-        if (sscanf(downloaded, "%s", test) == 1 && !strcmp(test, "OPA")) {
-            for (i = 0; downloaded[i] != '\n'; i++) {
-            }
-            i++;
-            fsize += i;
-            fsize -= write(new_file, &(downloaded[i]), 127-i);
-            continue;
-        }
         /* if (DEBUG) puts(downloaded); */
         if (n == -1) {
             if (DEBUG)
@@ -792,8 +765,9 @@ int download_file(int fd, char *fpath, int fsize) {
         fsize -= n;
     }
     close(new_file);
-    if (DEBUG) printf("Finished writing file %s (%ld bytes)\n", fpath,
-           get_file_size(fpath));
+    if (DEBUG)
+        printf("Finished writing file %s (%ld bytes)\n", fpath,
+               get_file_size(fpath));
     return 0;
 }
 
@@ -973,6 +947,7 @@ int tcp_sas(int fd, char *return_msg) {
     }
 
     while (remaining > 0) {
+        memset(fbuf, 0, BUF_SIZE);
         if (DEBUG)
             printf("show_asset: Sending file %s | %d bytes remaining \n", fname,
                    remaining);
@@ -982,17 +957,16 @@ int tcp_sas(int fd, char *return_msg) {
             return -1;
         }
 
-        n = write(fd, fbuf, BUF_SIZE - 1);
+        n = write(fd, fbuf, n);
         if (n == -1) {
             if (DEBUG) printf("TCP | Error writing asset (connected) %d\n", fd);
             return -1;
         }
-        remaining -= BUF_SIZE - 1;
+        remaining -= n;
     }
 
-    n = write(fd, "\n\n", 2);
+    /* n = write(fd, "\n\n", 2); */
     close(file_to_send);
-    if (n == -1) return -1;
     return 0;
 }
 
@@ -1079,16 +1053,15 @@ int handle_tcp(int fd) {
     int aux, sa = 0;
     char temp[BUF_SIZE];
     char return_msg[BUF_SIZE] = "";
-    /* Já conectado, o cliente então escreve algo para a sua socket.
-    Esses dados são lidos para o buffer. */
+
     n = read(fd, buffer, BUF_SIZE);
     if (n == -1) {
         if (DEBUG) printf("TCP | Error reading socket (connected) %d\n", fd);
         return -1;
     }
 
-    /* Faz 'echo' da mensagem recebida para o STDOUT do servidor */
-    if (DEBUG) printf("TCP | fd:%d\t| Received %zd bytes | %s\n", fd, n, buffer);
+    if (DEBUG)
+        printf("TCP | fd:%d\t| Received %zd bytes | %s\n", fd, n, buffer);
     sscanf(buffer, "%s ", temp);
     if (!strcmp(temp, "OPA")) {
         aux = tcp_opa(fd, return_msg);
