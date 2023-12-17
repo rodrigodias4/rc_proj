@@ -24,7 +24,7 @@
 #define A_FILE_SIZE_MAX_VALUE 10000000
 #define A_FILE_SIZE_MAX_LEN 8
 #define PASSWORD_SIZE 9
-char port[8] = "58051"; //change ????
+char port[8] = "58051";  // change ????
 int verbose = 0;
 
 int fd_udp, fd_tcp, next_aid = 0;
@@ -52,7 +52,7 @@ int input_verified(int uid, char *password) {
         return 0;
     }
 
-    if (strcmp(password,"")!=0) {
+    if (strcmp(password, "") != 0) {
         if (strlen(password) != 8) {
             return 0;
         }
@@ -124,6 +124,39 @@ int Create_Initial_Dirs() {
     if (!is_Directory_Exists(path)) {
         ret = mkdir("AUCTIONS", 0700);
         if (ret == -1) return -1;
+    }
+    return 0;
+}
+
+int check_auction_timeout(int aid) {
+    char temp_path[128], file_content[256], datetime[128];
+    long timeactive;
+    int fd;
+
+    // Get start file contents
+    time_t time_start;
+    sprintf(temp_path, "%s/AUCTIONS/%03d/START_%03d.txt", proj_path, aid, aid);
+    if ((fd = open(temp_path, O_RDONLY)) == -1) return -1;
+    read(fd, file_content, 128);
+    sscanf(file_content, "%*d %*s %*s %*d %ld %*s %*s %ld", &timeactive,
+           &time_start);
+    close(fd);
+
+    time_t time_now;
+    time(&time_now);
+    struct tm *time_info;
+    time_info = localtime(&time_now);
+    strftime(datetime, 128, "%Y-%m-%d %X", time_info);
+
+    if (time_now > time_start + timeactive) {
+        sprintf(temp_path, "%s/AUCTIONS/%03d/END_%03d.txt", proj_path, aid,
+                aid);
+        if ((fd = open(temp_path, O_WRONLY | O_CREAT, 0777)) == -1) return -1;
+        sprintf(file_content, "%s %ld\n", datetime, time_now - time_start);
+        write(fd, file_content, strlen(file_content));
+        close(fd);
+
+        return 1;
     }
     return 0;
 }
@@ -203,10 +236,10 @@ int Login_User(int uid, char *password) {
                 // User logged in correctly
                 txt1 = create_file(login_path, "");
                 if (txt1 == -1) return -1;
-                sprintf(msg, "RLI OK\n");
+                sprintf(msg, "RLI OK\n\n");
             } else {
                 // User not logged in correctly
-                sprintf(msg, "RLI NOK\n");
+                sprintf(msg, "RLI NOK\n\n");
             }
         }
 
@@ -217,7 +250,7 @@ int Login_User(int uid, char *password) {
 
             txt2 = create_file(login_path, "");
             if (txt2 == -1) return -1;
-            sprintf(msg, "RLI REG\n");
+            sprintf(msg, "RLI REG\n\n");
         }
     } else {
         // Never registered before
@@ -243,7 +276,7 @@ int Login_User(int uid, char *password) {
         txt2 = create_file(login_path, "");
         if (txt2 == -1) return -1;
 
-        sprintf(msg, "RLI REG\n");
+        sprintf(msg, "RLI REG\n\n");
     }
     return 0;
 }
@@ -275,18 +308,18 @@ int Logout_User(int uid) {
             if (file_exists) {
                 // User is logged in (do the Logout)
                 unlink(login_path);
-                sprintf(msg, "RLO OK\n");
+                sprintf(msg, "RLO OK\n\n");
             } else {
                 // User is not logged in
-                sprintf(msg, "RLO NOK\n");
+                sprintf(msg, "RLO NOK\n\n");
             }
         } else {
             // User was unregistered
-            sprintf(msg, "RLO UNR\n");
+            sprintf(msg, "RLO UNR\n\n");
         }
     } else {
         // User was never registered
-        sprintf(msg, "RLO UNR\n");
+        sprintf(msg, "RLO UNR\n\n");
     }
     return 0;
 }
@@ -319,18 +352,18 @@ int Unregister_User(int uid) {
                 // User is logged in (do the Unregister)
                 unlink(login_path);
                 unlink(pass_path);
-                sprintf(msg, "RUR OK\n");
+                sprintf(msg, "RUR OK\n\n");
             } else {
                 // User is not logged in
-                sprintf(msg, "RUR NOK\n");
+                sprintf(msg, "RUR NOK\n\n");
             }
         } else {
             // User was unregistered
-            sprintf(msg, "RUR UNR\n");
+            sprintf(msg, "RUR UNR\n\n");
         }
     } else {
         // User was never registered
-        sprintf(msg, "RUR UNR\n");
+        sprintf(msg, "RUR UNR\n\n");
     }
     return 0;
 }
@@ -415,7 +448,7 @@ int show_record(int aid) {
 
     sprintf(temp_path, "%s/AUCTIONS/%03d/START_%03d.txt", proj_path, aid, aid);
     if (!is_File_Exists(temp_path)) {
-        sprintf(msg, "RRC NOK\n");
+        sprintf(msg, "RRC NOK\n\n");
         return 0;
     }
 
@@ -434,7 +467,7 @@ int show_record(int aid) {
     strftime(start_datetime, 128, "%Y-%m-%d %X", time_info);
 
     // Send response
-    sprintf(msg, "RRC OK %d %s %s %d %s %d\n", uid, auction_name, asset_fname,
+    sprintf(msg, "RRC OK %d %s %s %d %s %d\n\n", uid, auction_name, asset_fname,
             start_value, start_datetime, timeactive);
     n = sendto(fd_udp, msg, strlen(msg), 0, (struct sockaddr *)&addr, addrlen);
     if (DEBUG) printf("SERVER MSG: %s", msg);
@@ -462,7 +495,7 @@ int show_record(int aid) {
             sscanf(file_content, "%06d %d %s %s %ld", &uid, &start_value,
                    start_datetime, temp, &sec_time);
 
-            sprintf(msg, "B %d %d %s %s %ld\n", uid, start_value,
+            sprintf(msg, "B %d %d %s %s %ld\n\n", uid, start_value,
                     start_datetime, temp, sec_time);
             close(bid_fd);
             n = sendto(fd_udp, msg, strlen(msg), 0, (struct sockaddr *)&addr,
@@ -479,7 +512,7 @@ int show_record(int aid) {
         memset(file_content, 0, sizeof(file_content));
         read(bid_fd, file_content, 128);
 
-        sprintf(msg, "E %s", file_content);
+        sprintf(msg, "E %s\n\n", file_content);
         n = sendto(fd_udp, msg, strlen(msg), 0, (struct sockaddr *)&addr,
                    addrlen);
         if (DEBUG) printf("SERVER MSG: %s", msg);
@@ -494,7 +527,7 @@ int my_bids(int uid) {
     int aid;
 
     if (!is_logged_in(uid)) {
-        sprintf(msg, "RMB NLG\n");
+        sprintf(msg, "RMB NLG\n\n");
         return 0;
     }
 
@@ -505,9 +538,10 @@ int my_bids(int uid) {
     sprintf(temp_path, "%s/USERS/%03d/BIDDED", proj_path, uid);
     n_entries = scandir(temp_path, &filelist, 0, alphasort);
 
-    if (n_entries < 0) return -1;
+    if (n_entries < 0)
+        return -1;
     else if (n_entries == 2) {
-        sprintf(msg, "RMB NOK\n");
+        sprintf(msg, "RMB NOK\n\n");
         return 0;
     }
     for (int f = 0; f < n_entries; f++) {
@@ -516,13 +550,15 @@ int my_bids(int uid) {
         sprintf(temp_path, "%s/AUCTIONS/%03d/END_%03d.txt", proj_path, aid,
                 aid);
 
-        sprintf(msg, "%s %03d %d\n", msg, aid, !is_File_Exists(temp_path));
+        int ended = is_File_Exists(temp_path);
+        if (!ended) ended = check_auction_timeout(aid);
+        sprintf(msg, "%s %03d %d", msg, aid, !ended);
         n = sendto(fd_udp, msg, strlen(msg), 0, (struct sockaddr *)&addr,
-                    addrlen);
+                   addrlen);
         if (DEBUG) printf("SERVER MSG: %s", msg);
         if (n == -1) return -1;
     }
-    sprintf(msg, "%s\n", msg);
+    sprintf(msg, "%s\n\n", msg);
     return 0;
 }
 
@@ -532,7 +568,7 @@ int my_auctions(int uid) {
     int aid;
 
     if (!is_logged_in(uid)) {
-        sprintf(msg, "RMA NLG\n");
+        sprintf(msg, "RMA NLG\n\n");
         return 0;
     }
 
@@ -542,9 +578,10 @@ int my_auctions(int uid) {
     sprintf(temp_path, "%s/USERS/%03d/HOSTED", proj_path, uid);
     n_entries = scandir(temp_path, &filelist, 0, alphasort);
 
-    if (n_entries < 0) return -1;
+    if (n_entries < 0)
+        return -1;
     else if (n_entries == 2) {
-        sprintf(msg, "RMA NOK\n");
+        sprintf(msg, "RMA NOK\n\n");
         return 0;
     }
     sprintf(msg, "RMA OK");
@@ -554,13 +591,15 @@ int my_auctions(int uid) {
         sprintf(temp_path, "%s/AUCTIONS/%03d/END_%03d.txt", proj_path, aid,
                 aid);
 
-        sprintf(aux, " %03d %d", aid, !is_File_Exists(temp_path));
+        int ended = is_File_Exists(temp_path);
+        if (!ended) ended = check_auction_timeout(aid);
+        sprintf(aux, " %03d %d", aid, !ended);
 
-        strcat(msg,aux);
+        strcat(msg, aux);
     }
-    strcat(msg,"\n");
-    n = sendto(fd_udp, msg, strlen(msg), 0, (struct sockaddr *)&addr,addrlen);
-    if (n == -1) return -1;          
+    strcat(msg, "\n\n");
+    n = sendto(fd_udp, msg, strlen(msg), 0, (struct sockaddr *)&addr, addrlen);
+    if (n == -1) return -1;
     return 0;
 }
 
@@ -572,24 +611,28 @@ int list_auctions() {
     int n_entries;
     sprintf(temp_path, "%s/AUCTIONS", proj_path);
     n_entries = scandir(temp_path, &filelist, 0, alphasort);
-    if (n_entries < 0) return -1;
-    else if (n_entries == 2)  {
-        sprintf(msg, "RLS NOK\n");
+    if (n_entries < 0)
+        return -1;
+    else if (n_entries == 2) {
+        sprintf(msg, "RLS NOK\n\n");
         return 0;
     }
     sprintf(msg, "RLS OK");
     for (int f = 0; f < n_entries; f++) {
         if (sscanf(filelist[f]->d_name, "%03d", &aid) != 1) continue;
-        sprintf(temp_path, "%s/AUCTIONS/%03d/END_%03d.txt", proj_path, aid, aid);
-        sprintf(msg, " %s %d",filelist[f]->d_name,!is_File_Exists(temp_path));
+        sprintf(temp_path, "%s/AUCTIONS/%03d/END_%03d.txt", proj_path, aid,
+                aid);
+        int ended = check_auction_timeout(aid);
+        sprintf(msg, "%s %s %d", msg, filelist[f]->d_name,
+                !ended);
     }
-    sprintf(msg, "%s\n",msg);
+    sprintf(msg, "%s\n\n", msg);
 
     return 0;
 }
 
 int handle_udp() {
-    int aux, n, uid;
+    int aux = -1, n, uid;
     addrlen = sizeof(addr);
     char temp[BUF_SIZE];
     char password[32];
@@ -609,20 +652,21 @@ int handle_udp() {
         if (sscanf(buffer, "LIN %d %s", &uid, password) == 2 &&
             input_verified(uid, password)) {
             aux = login_user(uid, password);
+            if (aux == -1) {
+                memset(msg, 0, sizeof msg);
+                sprintf(msg, "RLI");
+            }
         }
-        else {
-            aux = -1;
-        }
-    } 
-    else if (!strcmp(temp, "LOU")) {
+    } else if (!strcmp(temp, "LOU")) {
         // logout
         if (sscanf(buffer, "LOU %d %s", &uid, password) == 2 &&
             input_verified(uid, password)) {
             aux = logout_user(uid);
+            if (aux == -1) {
+                memset(msg, 0, sizeof msg);
+                sprintf(msg, "RLO");
+            }
         }
-        else {
-            aux = -1;
-        } 
     }
 
     else if (!strcmp(temp, "UNR")) {
@@ -630,56 +674,55 @@ int handle_udp() {
         if (sscanf(buffer, "UNR %d %s", &uid, password) == 2 &&
             input_verified(uid, password)) {
             aux = unregister_user(uid);
+            if (aux == -1) {
+                memset(msg, 0, sizeof msg);
+                sprintf(msg, "RUR");
+            }
         }
-        else {
-            aux = -1;
-        }
-    } 
-    else if (!strcmp(temp, "SRC")) {
+    } else if (!strcmp(temp, "SRC")) {
         int aid;
-        if (sscanf(buffer, "SRC %d", &aid) == 1 && 
-            valid_aid(aid)) {
+        if (sscanf(buffer, "SRC %d", &aid) == 1 && valid_aid(aid)) {
             aux = show_record(aid);
         }
-        else {
-            aux = -1;
+        if (aux == -1) {
+            memset(msg, 0, sizeof msg);
+            sprintf(msg, "RRC");
         }
-    } 
-    else if (!strcmp(temp, "LMA")) {
+    } else if (!strcmp(temp, "LMA")) {
         int uid;
-        if (sscanf(buffer, "LMA %d", &uid) == 1 &&
-            input_verified(uid, "")) {
+        if (sscanf(buffer, "LMA %d", &uid) == 1 && input_verified(uid, "")) {
             aux = my_auctions(uid);
         }
-        else {
-            aux = -1;
+        if (aux == -1) {
+            memset(msg, 0, sizeof msg);
+            sprintf(msg, "RMA");
         }
-    } 
-    else if (!strcmp(temp, "LMB")) {
+    } else if (!strcmp(temp, "LMB")) {
         int uid;
-        if (sscanf(buffer, "LMB %d", &uid) == 1 &&
-            input_verified(uid, "")) {
+        if (sscanf(buffer, "LMB %d", &uid) == 1 && input_verified(uid, "")) {
             aux = my_bids(uid);
         }
-        else {
-            aux = -1;
+        if (aux == -1) {
+            memset(msg, 0, sizeof msg);
+            sprintf(msg, "RMB");
         }
-    } 
-    else if (!strcmp(temp, "LST")) {
+    } else if (!strcmp(temp, "LST")) {
         aux = list_auctions();
-    } 
-    else {
+        if (aux == -1) {
+            memset(msg, 0, sizeof msg);
+            sprintf(msg, "RST");
+        }
+    } else {
         aux = -1;
-    } 
+    }
 
     // implement the other udp commands
-    if (aux==-1) {
-        strcpy(msg,"ERR\n"); //CHECK??
+    if (aux == -1) {
+        sprintf(msg, "%s ERR\n\n", msg);  // CHECK??
     }
 
     printf("SERVER MSG: %s", msg);
-    n = sendto(fd_udp, msg, strlen(msg), 0, (struct sockaddr *)&addr,
-               addrlen);
+    n = sendto(fd_udp, msg, strlen(msg), 0, (struct sockaddr *)&addr, addrlen);
 
     if (n == -1) return -1;
     return 0;
@@ -720,13 +763,15 @@ int tcp_opa(int fd, char *return_msg) {
     int uid, timeactive, fsize, start_value;
 
     if (sscanf(buffer, "OPA %d %s %s %d %d %s %d", &uid, password, aname,
-        &start_value, &timeactive, fname, &fsize) != 7 || !input_verified(uid,password) ||
-        strlen(aname) > 10 || start_value > 999999 || timeactive > 99999 || strlen(fname) > 24 || fsize > 99999999 )
+               &start_value, &timeactive, fname, &fsize) != 7 ||
+        !input_verified(uid, password) || strlen(aname) > 10 ||
+        start_value > 999999 || timeactive > 99999 || strlen(fname) > 24 ||
+        fsize > 99999999)
         return -1;
     if (!password_correct(uid, password))  // TODO
         return 0;
     if (!is_logged_in(uid)) {
-        sprintf(return_msg, "ROA NLG\n");
+        sprintf(return_msg, "ROA NLG\n\n");
         return 0;
     }
     sprintf(a_dir, "%s/AUCTIONS/%03d", proj_path, next_aid);
@@ -778,7 +823,7 @@ int tcp_opa(int fd, char *return_msg) {
     sprintf(file_path, "USERS/%d/HOSTED/%03d.txt", uid, next_aid);
     create_file(file_path, "");
 
-    sprintf(return_msg, "ROA OK\n");
+    sprintf(return_msg, "ROA OK\n\n");
     // write(fd, return_msg, 127);
     next_aid++;
     return 0;
@@ -811,15 +856,16 @@ int tcp_cls(char *return_msg) {
     char password[PASSWORD_SIZE], datetime[128], path[128], file_content[128];
     int uid, aid, start_fd, end_fd;
     if (sscanf(buffer, "CLS %d %s %d", &uid, password, &aid) != 3 ||
-        !input_verified(uid,password) || !valid_aid(aid)) return -1;
+        !input_verified(uid, password) || !valid_aid(aid))
+        return -1;
     if (!is_logged_in(uid)) {
-        sprintf(return_msg, "RCL NLG\n");
+        sprintf(return_msg, "RCL NLG\n\n");
     } else if (!auction_exists(aid)) {
-        sprintf(return_msg, "RCL EAU\n");
+        sprintf(return_msg, "RCL EAU\n\n");
     } else if (!auction_owned_by(aid, uid)) {
-        sprintf(return_msg, "RCL EOW\n");
+        sprintf(return_msg, "RCL EOW\n\n");
     } else if (auction_ended(aid)) {
-        sprintf(return_msg, "RCL END\n");
+        sprintf(return_msg, "RCL END\n\n");
     }
 
     if (strlen(return_msg) > 0) return 0;
@@ -846,7 +892,7 @@ int tcp_cls(char *return_msg) {
     write(end_fd, file_content, strlen(file_content));
     close(end_fd);
 
-    sprintf(return_msg, "RCL OK\n");
+    sprintf(return_msg, "RCL OK\n\n");
 
     return 0;
 }
@@ -858,8 +904,9 @@ int tcp_sas(int fd, char *return_msg) {
     if (!auction_exists(aid)) return -1;
     sprintf(fpath, "AUCTIONS/%03d/%s", aid, fname);
     if (!is_File_Exists(fpath)) return -1;
+    check_auction_timeout(aid);
 
-    sprintf(return_msg, "RSA OK %s %d\n", fname, fsize);
+    sprintf(return_msg, "RSA OK %s %d\n\n", fname, fsize);
     /* n = write(fd, return_msg, strlen(return_msg) + 1);
     if (n == -1) {
         if (DEBUG) printf("TCP | Error writing in socket (connected) %d\n", fd);
@@ -877,20 +924,19 @@ int tcp_bid(int fd, char *return_msg) {
     int uid, aid, success, value, highest_bid, start_fd;
 
     if (sscanf(buffer, "BID %d %s %d %d", &uid, password, &aid, &value) != 4 ||
-        !input_verified(uid,password) || !valid_aid(aid)) {
+        !input_verified(uid, password) || !valid_aid(aid)) {
         if (DEBUG) puts("ERROR: bid sscanf");
         return -1;
         /* } else if (!password_correct(uid, password)) {
             if (DEBUG) puts("Password incorrect");
             sprintf(return_msg, "RBD NOK\n"); */
     } else if (!is_logged_in(uid)) {
-        sprintf(return_msg, "RBD NLG\n");
+        sprintf(return_msg, "RBD NLG\n\n");
     } else if (auction_owned_by(aid, uid)) {
-        sprintf(return_msg, "RBD ILG\n");
-    } else if (!auction_exists(aid) || auction_ended(aid)) {
-        if (DEBUG)
-            printf("ERROR: %d %d", auction_exists(aid), auction_ended(aid));
-        sprintf(return_msg, "RBD NOK\n");
+        sprintf(return_msg, "RBD ILG\n\n");
+    } else if (!auction_exists(aid) || auction_ended(aid) ||
+               check_auction_timeout(aid)) {
+        sprintf(return_msg, "RBD NOK\n\n");
     }
     // Uma das condições acima foi encontrada
     if (strlen(return_msg) != 0) return 0;
@@ -906,7 +952,7 @@ int tcp_bid(int fd, char *return_msg) {
     if (n_entries > 2) {
         sscanf(filelist[n_entries - 1]->d_name, "%06d.txt", &highest_bid);
         if (value <= highest_bid) {  // bid inferior
-            sprintf(return_msg, "RBD REF\n");
+            sprintf(return_msg, "RBD REF\n\n");
             return 0;
         }
     }
@@ -947,7 +993,7 @@ int tcp_bid(int fd, char *return_msg) {
     sprintf(path, "USERS/%d/BIDDED/%03d.txt", uid, aid);
     create_file(path, "");
 
-    sprintf(return_msg, "RBD ACC\n");
+    sprintf(return_msg, "RBD ACC\n\n");
     return 1;
 }
 
@@ -968,20 +1014,30 @@ int handle_tcp(int fd) {
     sscanf(buffer, "%s ", temp);
     if (!strcmp(temp, "OPA")) {
         aux = tcp_opa(fd, return_msg);
-        if (aux==-1) {
-            sprintf(return_msg, "ROA NOK\n");
-            aux=0;
+        if (aux == 0) {
+            sprintf(return_msg, "ROA NOK\n\n");
+        } else if (aux == -1) {
+            memset(msg, 0, sizeof msg);
+            sprintf(msg, "ROA ERR\n\n");
         }
     } else if (!strcmp(temp, "CLS")) {
         aux = tcp_cls(return_msg);
+        if (aux == -1) {
+            memset(msg, 0, sizeof msg);
+            sprintf(msg, "RCL ERR\n\n");
+        }
     } else if (!strcmp(temp, "SAS")) {
         aux = tcp_sas(fd, return_msg);
+        if (aux == -1) {
+            memset(msg, 0, sizeof msg);
+            sprintf(msg, "RSA ERR\n\n");
+        }
     } else if (!strcmp(temp, "BID")) {
         aux = tcp_bid(fd, return_msg);
-    }
-
-    if (aux==-1) {
-        strcpy(return_msg,"ERR\n"); //CHECK??
+        if (aux == -1) {
+            memset(msg, 0, sizeof msg);
+            sprintf(msg, "RBD ERR\n\n");
+        }
     }
 
     printf("SERVER MSG: %s", return_msg);
@@ -1012,7 +1068,7 @@ int accept_tcp() {
 }
 
 int main(int argc, char **argv) {
-        if (argc > 1) {
+    if (argc > 1) {
         for (int i = 1; i < argc && i < 4; i += 2) {
             if (!strcmp(argv[i], "-n") && (argc > i + 1)) {
                 strcpy(port, argv[i + 1]);
