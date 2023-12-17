@@ -16,7 +16,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define DEBUG 1
+#define DEBUG 0
 #define BUF_SIZE 128
 #define A_DESC_MAX_LEN 10
 #define A_START_VALUE_MAX_LEN 6
@@ -136,12 +136,12 @@ int Create_Initial_Dirs() {
     char path[256];
     sprintf(path, "%s/USERS", proj_path);
     if (!is_Directory_Exists(path)) {
-        ret = mkdir("USERS", 0700);
+        ret = mkdir("USERS", 0777);
         if (ret == -1) return -1;
     }
     sprintf(path, "%s/AUCTIONS", proj_path);
     if (!is_Directory_Exists(path)) {
-        ret = mkdir("AUCTIONS", 0700);
+        ret = mkdir("AUCTIONS", 0777);
         if (ret == -1) return -1;
     }
     return 0;
@@ -280,13 +280,13 @@ int Login_User(int uid, char *password) {
         sprintf(hosted_path, "USERS/%d/HOSTED", uid);
         sprintf(bidded_path, "USERS/%d/BIDDED", uid);
 
-        ret = mkdir(uid_path, 0700);
+        ret = mkdir(uid_path, 0777);
         if (ret == -1) return -1;
 
-        ret = mkdir(hosted_path, 0700);
+        ret = mkdir(hosted_path, 0777);
         if (ret == -1) return -1;
 
-        ret = mkdir(bidded_path, 0700);
+        ret = mkdir(bidded_path, 0777);
         if (ret == -1) return -1;
 
         txt1 = create_file(pass_path, password);
@@ -794,12 +794,15 @@ int tcp_opa(int fd, char *return_msg) {
         sprintf(a_dir, "%s/AUCTIONS/%03d", proj_path, next_aid);
     }
     // Create auction AID directory
-    mkdir(a_dir, 0700);
+    mkdir(a_dir, 0777);
     if (DEBUG) puts("Created auction folder. ");
 
-    // Download asset file
     char file_path[256];
-    sprintf(file_path, "%s/AUCTIONS/%03d/%s", proj_path, next_aid, fname);
+    sprintf(file_path, "%s/AUCTIONS/%03d/ASSET", proj_path, next_aid);
+    mkdir(file_path, 0777);
+
+    // Download asset file
+    sprintf(file_path, "%s/AUCTIONS/%03d/ASSET/%s", proj_path, next_aid, fname);
     if (download_file(fd, file_path, fsize) == -1) return -1;
 
     // Create START file
@@ -828,14 +831,14 @@ int tcp_opa(int fd, char *return_msg) {
 
     // Create BIDS folder
     sprintf(file_path, "%s/BIDS/", a_dir);
-    mkdir(file_path, 0700);
+    mkdir(file_path, 0777);
     if (DEBUG) puts("Created bids folder.\n");
 
     // Update User Hosted
     sprintf(file_path, "USERS/%d/HOSTED/%03d.txt", uid, next_aid);
     create_file(file_path, "");
 
-    sprintf(return_msg, "ROA OK %03d\n\n",next_aid);
+    sprintf(return_msg, "ROA OK %03d\n\n", next_aid);
     // write(fd, return_msg, 127);
     next_aid++;
     return 1;
@@ -924,7 +927,7 @@ int tcp_sas(int fd, char *return_msg) {
     sscanf(start_content, "%*d %*s %s", fname);
     close(start_fd);
 
-    sprintf(fpath, "AUCTIONS/%03d/%s", aid, fname);
+    sprintf(fpath, "AUCTIONS/%03d/ASSET/%s", aid, fname);
     if (!is_File_Exists(fpath)) return -1;
     check_auction_timeout(aid);
     fsize = get_file_size(fpath);
@@ -941,7 +944,7 @@ int tcp_sas(int fd, char *return_msg) {
     remaining = fsize;
 
     n = write(fd, return_msg, strlen(return_msg));
-    if (DEBUG) printf("SERVER_MSG: %s",return_msg);
+    if (DEBUG) printf("SERVER_MSG: %s", return_msg);
     if (n == -1) {
         if (DEBUG) printf("TCP | Error writing asset (connected) %d\n", fd);
         return -1;

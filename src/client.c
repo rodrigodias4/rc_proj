@@ -12,7 +12,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
-#define DEBUG 1
+#define DEBUG 0
 #define BUF_SIZE 128
 #define PASSWORD_SIZE 9
 
@@ -355,7 +355,7 @@ int cls(char *buffer, char *msg) {
     tcp_open();
     tcp_talk(msg, strlen(msg));
 
-    return 0;
+    return 1;
 }
 
 int opa(char *buffer, char *msg) {
@@ -420,7 +420,7 @@ int opa(char *buffer, char *msg) {
     /* tcp_talk("\n\n", 2); */
 
     if (DEBUG) printf("Finished uploading file %s\n", img_fname);
-    return 0;
+    return 1;
 }
 
 int sas(char *buffer, char *msg, char *temp) {
@@ -433,7 +433,7 @@ int sas(char *buffer, char *msg, char *temp) {
     sprintf(msg, "SAS %d\n\n", aid);
     tcp_open();
     tcp_talk(msg, strlen(msg));
-    return 0;
+    return 1;
 }
 
 int bid(char *buffer, char *msg) {
@@ -460,7 +460,7 @@ void responses_tcp(char *buf_res) {
             if (!strcmp(status, "OK")) {
                 int aid;
                 if (sscanf(buf_res, "ROA OK %03d", &aid) == 1)
-                    printf("Auction created successfully with AID %d.\n", aid);
+                    printf("Auction created successfully with AID %03d.\n", aid);
             } else if (!strcmp(status, "NLG")) {
                 printf("User not logged in.\n");
             } else {
@@ -553,14 +553,13 @@ int parse_msg_tcp(char *buffer, char *msg) {
             fsize -= n;
         }
 
-        printf("Asset file with %d bytes downloaded on %s\n", fsize, fpath);
+        printf("Asset file with %d bytes downloaded to %s\n", fsize, fpath);
     }
     while (!message_ended(buf_tcp, n) && n > 0){
         if (sa && fsize <= 0) break;
         memset(buf_tcp, 0, BUF_SIZE);
         n = read(fd, buf_tcp, BUF_SIZE - 1);
         if (n<=0) break;
-        if (n < 0) break;
         if (DEBUG) printf("READ %d BYTES -> %s\n", n, buf_tcp);
         if (sa) {
             write(asset_fd, buf_tcp, n);
