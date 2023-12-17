@@ -484,7 +484,7 @@ int show_record(int aid) {
     strftime(start_datetime, 128, "%Y-%m-%d %X", time_info);
 
     // Send response
-    sprintf(msg, "RRC OK %d %s %s %d %s %d\n\n", uid, auction_name, asset_fname,
+    sprintf(msg, "RRC OK %d %s %s %d %s %d\n", uid, auction_name, asset_fname,
             start_value, start_datetime, timeactive);
     n = sendto(fd_udp, msg, strlen(msg), 0, (struct sockaddr *)&addr, addrlen);
     if (DEBUG) printf("SERVER MSG: %s", msg);
@@ -499,9 +499,10 @@ int show_record(int aid) {
     for(int k = 0; k < n_entries; k++) {
         printf("\t%s\n",filelist[k]->d_name);
     } */
+    int last_50 = 0;
     if (n_entries < 0) return -1;
     if (n_entries > 2) {
-        for (int f = 0; f < n_entries; f++) {
+        for (int f = n_entries-1; f >= 0 && last_50 < 49; f--) {
             if (sscanf(filelist[f]->d_name, "%06d.txt", &start_value) != 1)
                 continue;
             sprintf(temp_path, "%s/AUCTIONS/%03d/BIDS/%s", proj_path, aid,
@@ -512,13 +513,14 @@ int show_record(int aid) {
             sscanf(file_content, "%06d %d %s %s %ld", &uid, &start_value,
                    start_datetime, temp, &sec_time);
 
-            sprintf(msg, "B %d %d %s %s %ld\n\n", uid, start_value,
+            sprintf(msg, "B %d %d %s %s %ld\n", uid, start_value,
                     start_datetime, temp, sec_time);
             close(bid_fd);
             n = sendto(fd_udp, msg, strlen(msg), 0, (struct sockaddr *)&addr,
                        addrlen);
             if (DEBUG) printf("SERVER MSG: %s", msg);
             if (n == -1) return -1;
+            last_50++; 
         }
     }
 
@@ -529,13 +531,14 @@ int show_record(int aid) {
         memset(file_content, 0, sizeof(file_content));
         read(bid_fd, file_content, 128);
 
-        sprintf(msg, "E %s\n\n", file_content);
+        sprintf(msg, "E %s\n", file_content);
         n = sendto(fd_udp, msg, strlen(msg), 0, (struct sockaddr *)&addr,
                    addrlen);
         if (DEBUG) printf("SERVER MSG: %s", msg);
         if (n == -1) return -1;
     }
-
+    n = sendto(fd_udp, "\n\n", 2, 0, (struct sockaddr *)&addr,
+                   addrlen);
     return 0;
 }
 

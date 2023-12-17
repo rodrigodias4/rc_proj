@@ -93,9 +93,58 @@ int handle_udp_server_msg(char *msg) {
     sscanf(msg, "%s", temp);
     if (strcmp(temp, "RLI") == 0) {
         if (sscanf(msg, "RLI %s", status) == 1) {
-            if (strcmp(status, "OK") && strcmp(status, "REG")) {
+            if (!strcmp(status, "OK")) {
+                printf("User logged in successfully.\n");
+            }
+            if (!strcmp(status, "REG")) {
+                printf("User registered successfully.\n");
+            }
+            else {
                 uid = 0;
                 strcpy(password, "");
+                printf("An error ocurred while logging in.\n");
+            }
+        } else {
+            return -1;
+        }
+    } else if (!strcmp(temp, "RLI")) {
+        if (sscanf(msg, "RLI %s", status) == 1) {
+            if (!strcmp(status, "OK")) {
+                printf("User logged out successfully.\n");
+            }
+            if (!strcmp(status, "NOK")) {
+                printf("User is not logged in.\n");
+            }
+            else if (!strcmp (status,"UNR")) {
+                uid = 0;
+                strcpy(password, "");
+                printf("User is not registered.");
+            }
+            else {
+                uid = 0;
+                strcpy(password, "");
+                printf("An error ocurred while logging out.\n");
+            }
+        } else {
+            return -1;
+        }
+    } else if (!strcmp(temp, "RUR")) {
+        if (sscanf(msg, "RLI %s", status) == 1) {
+            if (!strcmp(status, "OK")) {
+                printf("User unregistered successfully.\n");
+            }
+            if (!strcmp(status, "NOK")) {
+                printf("User is not logged in.\n");
+            }
+            else if (!strcmp (status,"UNR")) {
+                uid = 0;
+                strcpy(password, "");
+                printf("User is not registered.");
+            }
+            else {
+                uid = 0;
+                strcpy(password, "");
+                printf("An error ocurred while unregistering\n");
             }
         } else {
             return -1;
@@ -139,10 +188,8 @@ int udp(char *msg) {
                      &addrlen);
         if (n == -1) /*error*/
             exit(1);
+        printf("%s",buf_udp);
     } while (!message_ended(buf_udp, BUF_SIZE));
-
-    /* write(1, "server_output: ", 16); */
-    write(1, buf_udp, n);
 
     handle_udp_server_msg(buf_udp);
 
