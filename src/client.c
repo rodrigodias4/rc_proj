@@ -12,7 +12,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
-#define DEBUG 0
+#define DEBUG 1
 #define BUF_SIZE 128
 #define PASSWORD_SIZE 9
 
@@ -440,29 +440,84 @@ int bid(char *buffer, char *msg) {
     int aid, value;
     if (sscanf(buffer, "bid %d %d", &aid, &value) != 2) return -1;
     if (!valid_aid(aid)) return -1;
+    if (!has_uid_pwd()) {
+        puts("Not logged in.");
+        return 0;
+    }
 
     sprintf(msg, "BID %d %s %d %d\n\n", uid, password, aid, value);
     tcp_open();
     tcp_talk(msg, strlen(msg));
-    return 0;
+    return 1;
+}
+
+void responses_tcp(char *buf_res) {
+    char temp[BUF_SIZE];
+    char status[BUF_SIZE];
+    sscanf(buf_res, "%s", temp);
+    if (strcmp(temp, "ROA") == 0) {
+        if (sscanf(buf_res, "ROA %s", status) == 1) {
+            if (!strcmp(status, "OK")) {
+                int aid;
+                if (sscanf(buf_res, "ROA OK %03d", &aid) == 1)
+                    printf("Auction created successfully with AID %d.\n", aid);
+            } else if (!strcmp(status, "NLG")) {
+                printf("User not logged in.\n");
+            } else {
+                printf("Auction could not be started.\n");
+            }
+        }
+    } else if (strcmp(temp, "RCL") == 0) {
+        if (sscanf(buf_res, "RCL %s", status) == 1) {
+            if (!strcmp(status, "OK")) {
+                printf("Auction closed successfully.\n");
+            } else if (!strcmp(status, "NLG")) {
+                printf("User not logged in.\n");
+            } else if (!strcmp(status, "EAU")) {
+                printf("Auction does not exist.\n");
+            } else if (!strcmp(status, "EOW")) {
+                printf("Auction is not owend by the current user.\n");
+            } else {
+                printf("Auction could not be closed.\n");
+            }
+        }
+    } else if (strcmp(temp, "RBD") == 0) {
+        if (sscanf(buf_res, "RBD %s", status) == 1) {
+            if (!strcmp(status, "ACC")) {
+                printf("Bid successful.\n");
+            } else if (!strcmp(status, "NLG")) {
+                printf("User not logged in.\n");
+            } else if (!strcmp(status, "REF")) {
+                printf("Larger bid already exists.\n");
+            } else if (!strcmp(status, "ILG")) {
+                printf("Auction owned by the current user.\n");
+            } else {
+                printf("Error placing bid.\n");
+            }
+        }
+    }
 }
 
 /* NOT TESTED AT ALL */
 int parse_msg_tcp(char *buffer, char *msg) {
     char temp[BUF_SIZE], buf_tcp[BUF_SIZE], fpath[BUF_SIZE];
-    int sa = 0, asset_fd;
+    int sa = 0, asset_fd, aux = 0;
     memset(buf_tcp, 0, BUF_SIZE);
 
     sscanf(buffer, "%s ", temp);
     if (!strcmp(temp, "open")) {
-        if (opa(buffer, msg) == -1) return -1;
+        aux = opa(buffer, msg);
+        if (aux <= 0) return -1;
     } else if (!strcmp(temp, "close")) {
-        if (cls(buffer, msg) == -1) return -1;
+        aux = cls(buffer, msg);
+        if (aux <= 0) return -1;
     } else if (!strcmp(temp, "show_asset") || !strcmp(temp, "sa")) {
         sa = 1;
-        if (sas(buffer, msg, temp) == -1) return -1;
+        aux = sas(buffer, msg, temp);
+        if (aux <= 0) return -1;
     } else if (!strcmp(temp, "bid")) {
-        if (bid(buffer, msg) == -1) return -1;
+        aux = bid(buffer, msg);
+        if (aux <= 0) return -1;
         // TODO
     } else {
         return 0;
@@ -471,6 +526,7 @@ int parse_msg_tcp(char *buffer, char *msg) {
 
     int n = read(fd, buf_tcp, BUF_SIZE - 1);
     if (DEBUG) printf("READ %d BYTES -> %s\n", n, buf_tcp);
+    responses_tcp(buf_tcp);
 
     int fsize;
     if (sa) {
@@ -483,6 +539,7 @@ int parse_msg_tcp(char *buffer, char *msg) {
             if (DEBUG) printf("Error creating asset file");
             return -1;
         }
+
         int i;
         for (i = 0; i < n; i++) {
             if (buf_tcp[i] == '\n') {
@@ -490,22 +547,26 @@ int parse_msg_tcp(char *buffer, char *msg) {
                 break;
             }
         }
+
         if (i < n) {
             n = write(asset_fd, &(buf_tcp[i]), strlen(&(buf_tcp[i])));
             fsize -= n;
         }
+
+        printf("Asset file with %d bytes downloaded on %s\n", fsize, fpath);
     }
-    do {
+    while (!message_ended(buf_tcp, n) && n > 0){
+        if (sa && fsize <= 0) break;
         memset(buf_tcp, 0, BUF_SIZE);
         n = read(fd, buf_tcp, BUF_SIZE - 1);
+        if (n<=0) break;
         if (n < 0) break;
-        if (DEBUG) printf("READ %d BYTES\n", n);
-        /* printf("%s", buf_tcp); */
+        if (DEBUG) printf("READ %d BYTES -> %s\n", n, buf_tcp);
         if (sa) {
             write(asset_fd, buf_tcp, n);
+            fsize -= n;
         }
-        fsize -= n;
-    } while (!message_ended(buf_tcp, n) && n > 0 && fsize > 0);
+    }
 
     n = write(fd, "\n\n", 2);
     tcp_close();
@@ -551,7 +612,7 @@ int parse_msg() {
         return 0;
     }
 
-    return -1;  // input doesn't correspond to command
+    return -2;  // input doesn't correspond to command
 }
 
 int main(int argc, char **argv) {
@@ -574,7 +635,7 @@ int main(int argc, char **argv) {
         // read message from terminal
         int res;
         res = parse_msg();
-        if (res == -1) {
+        if (res == -2) {
             puts("Invalid input.");
         } else if (res == 1) {
             puts("Application terminated.");

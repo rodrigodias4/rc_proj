@@ -16,7 +16,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define DEBUG 0
+#define DEBUG 1
 #define BUF_SIZE 128
 #define A_DESC_MAX_LEN 10
 #define A_START_VALUE_MAX_LEN 6
@@ -835,7 +835,7 @@ int tcp_opa(int fd, char *return_msg) {
     sprintf(file_path, "USERS/%d/HOSTED/%03d.txt", uid, next_aid);
     create_file(file_path, "");
 
-    sprintf(return_msg, "ROA OK\n\n");
+    sprintf(return_msg, "ROA OK %03d\n\n",next_aid);
     // write(fd, return_msg, 127);
     next_aid++;
     return 1;
@@ -941,6 +941,7 @@ int tcp_sas(int fd, char *return_msg) {
     remaining = fsize;
 
     n = write(fd, return_msg, strlen(return_msg));
+    if (DEBUG) printf("SERVER_MSG: %s",return_msg);
     if (n == -1) {
         if (DEBUG) printf("TCP | Error writing asset (connected) %d\n", fd);
         return -1;
@@ -1068,28 +1069,28 @@ int handle_tcp(int fd) {
         if (aux == 0) {
             sprintf(return_msg, "ROA NOK\n\n");
         } else if (aux == -1) {
-            memset(msg, 0, sizeof msg);
-            sprintf(msg, "ROA ERR\n\n");
+            memset(return_msg, 0, sizeof return_msg);
+            sprintf(return_msg, "ROA ERR\n\n");
         }
     } else if (!strcmp(temp, "CLS")) {
         aux = tcp_cls(return_msg);
         if (aux == -1) {
-            memset(msg, 0, sizeof msg);
-            sprintf(msg, "RCL ERR\n\n");
+            memset(return_msg, 0, sizeof return_msg);
+            sprintf(return_msg, "RCL ERR\n\n");
         }
     } else if (!strcmp(temp, "SAS")) {
         sa = 1;
         aux = tcp_sas(fd, return_msg);
         if (aux == -1) {
-            memset(msg, 0, sizeof msg);
-            sprintf(msg, "RSA ERR\n\n");
+            memset(return_msg, 0, sizeof return_msg);
+            sprintf(return_msg, "RSA ERR\n\n");
         }
         return aux > 0;
     } else if (!strcmp(temp, "BID")) {
         aux = tcp_bid(return_msg);
         if (aux == -1) {
-            memset(msg, 0, sizeof msg);
-            sprintf(msg, "RBD ERR\n\n");
+            memset(return_msg, 0, sizeof return_msg);
+            sprintf(return_msg, "RBD ERR\n\n");
         }
     }
 
@@ -1102,8 +1103,13 @@ int handle_tcp(int fd) {
             return -1;
         }
     }
+
     n = read(fd, return_msg, BUF_SIZE);
-    if (message_ended(return_msg, BUF_SIZE)) close(fd);
+
+    if (message_ended(return_msg, BUF_SIZE)) {
+        close(fd);
+        fd = -1;
+    }
     return n;
 }
 
