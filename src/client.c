@@ -11,6 +11,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <signal.h>
 #define DEBUG 0
 #define BUF_SIZE 128
 #define TRIM 1
