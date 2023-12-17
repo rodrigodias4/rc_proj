@@ -11,9 +11,8 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
-#define DEBUG 1
+#define DEBUG 0
 #define BUF_SIZE 128
-#define TCP_BUF_SIZE 1024
 #define TRIM 1
 #define NO_TRIM 0
 #define PASSWORD_SIZE 9
@@ -37,6 +36,11 @@ char asport[8] = "58051";  // 58000 + group number (51)
 // 58001 : echo
 int uid = 0;
 char password[PASSWORD_SIZE] = "";
+
+void int_handler() {
+    if (fd != -1) close(fd);
+    exit(0);
+}
 
 long get_file_size(char *filename) {
     struct stat file_status;
@@ -137,13 +141,14 @@ int udp(char *msg) {
             exit(1);
     } while (!message_ended(buf_udp, BUF_SIZE));
 
-    write(1, "server_output: ", 16);
+    /* write(1, "server_output: ", 16); */
     write(1, buf_udp, n);
 
     handle_udp_server_msg(buf_udp);
 
     freeaddrinfo(res);
     close(fd);
+    fd = -1;
 
     return 0;
 }
@@ -187,7 +192,7 @@ int tcp_talk(char *msg, int trim) {
     if (trim < 0 || trim > 1) return -1;
     /* Escreve a mensagem para o servidor, especificando o seu
      * tamanho */
-    n = write(fd, msg, trim * (str_len) + (1 - trim) * TCP_BUF_SIZE);
+    n = write(fd, msg, trim * (str_len) + (1 - trim) * (BUF_SIZE-1));
     if (n == -1) {
         exit(1);
     }
@@ -208,6 +213,7 @@ int tcp_close() {
     /* Desaloca a memória da estrutura `res` e fecha o socket */
     freeaddrinfo(res);
     close(fd);
+    fd = -1;
 
     return 0;
 }
@@ -320,7 +326,8 @@ int cls(char *buffer, char *msg) {
         return -1;
     }
     sprintf(msg, "CLS %d %s %d\n\n", uid, password, aid);
-    tcp(msg);
+    tcp_open();
+    tcp_talk(msg,1);
 
     return 0;
 }
@@ -365,28 +372,28 @@ int opa(char *buffer, char *msg) {
         printf("open: Not logged in.\n");
         return -1;
     }
-    sprintf(msg, "OPA %d %s %s %d %d %s %d\n\n", uid, password, description,
+    sprintf(msg, "OPA %d %s %s %d %d %s %d\n", uid, password, description,
             start_value, time_active, img_fname, fsize);
-    tcp(msg);
-    /* int file_to_send;
+    tcp_open();
+    tcp_talk(msg,1);
+    int file_to_send;
     if ((file_to_send = open(img_fname, O_RDONLY)) < 0) return -1;
     remaining = fsize;
-    tcp_open();
 
     tcp_talk(msg, TRIM);  // send text before file
-    while (remaining > 0) { */
-    /* if (DEBUG)
-        printf("open: Sending file %s | %d bytes remaining \n", img_fname,
-               remaining); */
-    /* read(file_to_send, msg, BUF_SIZE);
+    while (remaining > 0) {
+        /* if (DEBUG)
+            printf("open: Sending file %s | %d bytes remaining \n", img_fname,
+                   remaining); */
+        n = read(file_to_send, msg, BUF_SIZE-1);
+        if (n <= 0) break;
 
-    tcp_talk(msg, NO_TRIM);
-    remaining -= BUF_SIZE;
-}
-tcp_talk(" \n", NO_TRIM);
-tcp_close();
+        tcp_talk(msg, NO_TRIM);
+        remaining -= BUF_SIZE-1;
+    }
+    tcp_talk("\n\n", NO_TRIM);
 
-if (DEBUG) printf("Finished uploading file %s\n", img_fname); */
+    if (DEBUG) printf("Finished uploading file %s\n", img_fname);
     return 0;
 }
 
@@ -398,7 +405,8 @@ int sas(char *buffer, char *msg, char *temp) {
         return -1;
     }
     sprintf(msg, "SAS %d\n\n", aid);
-    tcp(msg);
+    tcp_open();
+    tcp_talk(msg, 1);
     return 0;
 }
 
@@ -408,13 +416,16 @@ int bid(char *buffer, char *msg) {
     if (!valid_aid(aid)) return -1;
 
     sprintf(msg, "BID %d %s %d %d\n\n", uid, password, aid, value);
-    tcp(msg);
+    tcp_open();
+    tcp_talk(msg,1);
     return 0;
 }
 
 /* NOT TESTED AT ALL */
 int parse_msg_tcp(char *buffer, char *msg) {
-    char temp[BUF_SIZE], buf_tcp[BUF_SIZE] = "";
+    char temp[BUF_SIZE], buf_tcp[BUF_SIZE], fpath[BUF_SIZE];
+    int sa = 0, asset_fd;
+    memset(buf_tcp, 0, BUF_SIZE);
 
     sscanf(buffer, "%s ", temp);
     if (!strcmp(temp, "open")) {
@@ -422,6 +433,7 @@ int parse_msg_tcp(char *buffer, char *msg) {
     } else if (!strcmp(temp, "close")) {
         if (cls(buffer, msg) == -1) return -1;
     } else if (!strcmp(temp, "show_asset") || !strcmp(temp, "sa")) {
+        sa = 1;
         if (sas(buffer, msg, temp) == -1) return -1;
     } else if (!strcmp(temp, "bid")) {
         if (bid(buffer, msg) == -1) return -1;
@@ -430,10 +442,39 @@ int parse_msg_tcp(char *buffer, char *msg) {
         return 0;
     }
     if (DEBUG) printf("%s", msg);
-    int n = read(fd, buf_tcp, BUF_SIZE);
+
+    int n = read(fd, buf_tcp, BUF_SIZE-1);
+        if (DEBUG) printf("READ %d BYTES\n", n);
+        printf("%s", buf_tcp);
+    int fsize;
+    if(sa) {
+        char fname[25];
+        if (sscanf(buf_tcp, "RSA OK %s %d", fname, &fsize) != 2) return 0;
+        mkdir("DOWNLOADS",0777);
+        sprintf(fpath, "DOWNLOADS/%s",fname);
+        if ((asset_fd = open(fpath, O_WRONLY | O_CREAT | O_TRUNC, 0777)) == -1) return -1;
+        int spaces = 0;
+        int i;
+        for (i = 0; spaces < 3 && i < n; i++) {
+            if (buf_tcp[i] == ' ') spaces++;
+        }
+        if (spaces < 4) return -1;
+        write(asset_fd, &buf_tcp[i],BUF_SIZE-i-1);
+    }
+    do {
+        memset(buf_tcp, 0, BUF_SIZE);
+        int n = read(fd, buf_tcp, BUF_SIZE-1);
+        if (n<0) break;
+        if (DEBUG) printf("READ %d BYTES\n", n);
+        /* printf("%s", buf_tcp); */
+        if (sa) {
+            write(asset_fd, buf_tcp,n);
+        }
+        fsize -= n;
+    } while (!message_ended(buf_tcp, n) && n > 0 && fsize > 0);
+
+    n = write(fd, "\n\n", 2);
     tcp_close();
-    printf("READ %d BYTES\n", n);
-    printf("server_output: %s", buf_tcp);
     return 1;
 }
 

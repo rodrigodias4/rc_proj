@@ -15,7 +15,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define DEBUG 1
+#define DEBUG 0
 #define BUF_SIZE 128
 #define A_DESC_MAX_LEN 10
 #define A_START_VALUE_MAX_LEN 6
@@ -27,7 +27,7 @@
 char port[8] = "58051";  // change ????
 int verbose = 0;
 
-int fd_udp, fd_tcp, next_aid = 0;
+int fd_udp = -1, fd_tcp = -1, next_aid = 0, max_fd = 0;
 ssize_t n;
 socklen_t addrlen;
 struct addrinfo hints_udp, hints_tcp, *res_udp, *res_tcp;
@@ -35,6 +35,15 @@ struct sockaddr_in addr;
 char buffer[BUF_SIZE];
 char msg[1024];
 char proj_path[128] = "";
+fd_set fds;
+
+void int_handler() {
+    for (int i = 0; i <= max_fd; i++) {
+            if (FD_ISSET(i, &fds)) {
+                close(i);
+            }}
+    exit(0);
+}
 
 int valid_aid(int aid) { return aid >= 0 && aid <= 999; }
 
@@ -66,6 +75,14 @@ int input_verified(int uid, char *password) {
     }
 
     return 1;
+}
+
+int message_ended(char *buf, int size) {
+    for (int i = 0; i < size; i++) {
+        if (buf[i] == '\n' && i < size - 1)
+            if (buf[i + 1] == '\n') return 1;
+    }
+    return 0;
 }
 
 long get_file_size(char *filename) {
@@ -623,8 +640,7 @@ int list_auctions() {
         sprintf(temp_path, "%s/AUCTIONS/%03d/END_%03d.txt", proj_path, aid,
                 aid);
         int ended = check_auction_timeout(aid);
-        sprintf(msg, "%s %s %d", msg, filelist[f]->d_name,
-                !ended);
+        sprintf(msg, "%s %s %d", msg, filelist[f]->d_name, !ended);
     }
     sprintf(msg, "%s\n\n", msg);
 
@@ -643,7 +659,9 @@ int handle_udp() {
     n = recvfrom(fd_udp, buffer, BUF_SIZE, 0, (struct sockaddr *)&addr,
                  &addrlen);
     if (n == -1) return -1;
-
+    if (verbose)
+        printf("New UDP request | IP: %s | Port: %d\n",
+               inet_ntoa(addr.sin_addr), (int)ntohs(addr.sin_port));
     if (DEBUG) printf("UDP | Received %d bytes | %s\n", n, buffer);
     // TODO: INTERPRETAR MENSAGENS DO CLIENTE
     sscanf(buffer, "%s ", temp);
@@ -721,27 +739,45 @@ int handle_udp() {
         sprintf(msg, "%s ERR\n\n", msg);  // CHECK??
     }
 
-    printf("SERVER MSG: %s", msg);
+    if (DEBUG) printf("SERVER MSG: %s", msg);
     n = sendto(fd_udp, msg, strlen(msg), 0, (struct sockaddr *)&addr, addrlen);
 
     if (n == -1) return -1;
     return 0;
 }
 
-int download_file(int fd, char *fname, int fsize, int newline_index) {
-    char downloaded[BUF_SIZE];
-    strcpy(fname, "test2.txt");
-    int new_file = open(fname, O_WRONLY | O_TRUNC | O_CREAT, 0777);
-    printf("Created file %s, writing...\n", fname);
-    /* write(fd, buffer + newline_index, BUF_SIZE - newline_index - 1); */
+int download_file(int fd, char *fpath, int fsize) {
+    char downloaded[BUF_SIZE], test[128];
+    int i;
+    int new_file = open(fpath, O_WRONLY | O_TRUNC | O_CREAT, 0777);
+    memset(downloaded, 0, BUF_SIZE);
+    if (DEBUG) printf("Created file %s, writing...\n", fpath);
+
+    /* if(sscanf(buffer,"%s",test) == 1 && !strcmp(test,"OPA")){
+        for(i=0; buffer[i] != '\n';i++){}
+        i++;
+        printf("----->%d %s\n",i, &(buffer[i]));
+        write(new_file,&buffer[i], BUF_SIZE-1-i);
+        fsize -= BUF_SIZE-1-i;
+    } */
     while (fsize > 0) {
-        n = read(fd, downloaded, 128);
+        memset(downloaded, 0, BUF_SIZE);
+        n = read(fd, downloaded, 127);
+        if (sscanf(downloaded, "%s", test) == 1 && !strcmp(test, "OPA")) {
+            for (i = 0; downloaded[i] != '\n'; i++) {
+            }
+            i++;
+            fsize += i;
+            fsize -= write(new_file, &(downloaded[i]), 127-i);
+            continue;
+        }
+        /* if (DEBUG) puts(downloaded); */
         if (n == -1) {
             if (DEBUG)
                 printf("TCP | Error downloading file (connected) %d\n", fd);
             return -1;
         }
-        n = write(new_file, downloaded, 128);
+        n = write(new_file, downloaded, n);
         if (n == -1) {
             if (DEBUG)
                 printf("TCP | Error writing downloaded file (connected) %d\n",
@@ -752,14 +788,13 @@ int download_file(int fd, char *fname, int fsize, int newline_index) {
         fsize -= n;
     }
     close(new_file);
-    printf("Finished writing file %s (%ld bytes)\n", fname,
-           get_file_size(fname));
+    if (DEBUG) printf("Finished writing file %s (%ld bytes)\n", fpath,
+           get_file_size(fpath));
     return 0;
 }
 
 int tcp_opa(int fd, char *return_msg) {
-    char fname[128], aname[A_DESC_MAX_LEN + 1], password[128], a_dir[256],
-        temp[BUF_SIZE];
+    char fname[128], aname[A_DESC_MAX_LEN + 1], password[128], a_dir[256];
     int uid, timeactive, fsize, start_value;
 
     if (sscanf(buffer, "OPA %d %s %s %d %d %s %d", &uid, password, aname,
@@ -774,23 +809,22 @@ int tcp_opa(int fd, char *return_msg) {
         sprintf(return_msg, "ROA NLG\n\n");
         return 0;
     }
-    sprintf(a_dir, "%s/AUCTIONS/%03d", proj_path, next_aid);
 
+    sprintf(a_dir, "%s/AUCTIONS/%03d", proj_path, next_aid);
+    while (is_Directory_Exists(a_dir)) {
+        next_aid++;
+        sprintf(a_dir, "%s/AUCTIONS/%03d", proj_path, next_aid);
+    }
     // Create auction AID directory
     mkdir(a_dir, 0700);
     if (DEBUG) puts("Created auction folder. ");
 
-    /* int newline_index;
-    for (newline_index = 0; newline_index < strlen(buffer); newline_index++) {
-        if (buffer[newline_index] == '\n') {
-            newline_index++;
-            break;
-        }
-    } */
     // Download asset file
-    // if (download_file(fd, fname, fsize, newline_index) == -1) return -1;
-    // Create START file
     char file_path[256];
+    sprintf(file_path, "%s/AUCTIONS/%03d/%s", proj_path, next_aid, fname);
+    if (download_file(fd, file_path, fsize) == -1) return -1;
+
+    // Create START file
     sprintf(file_path, "%s/START_%03d.txt", a_dir, next_aid);
 
     int start_fd;
@@ -826,7 +860,7 @@ int tcp_opa(int fd, char *return_msg) {
     sprintf(return_msg, "ROA OK\n\n");
     // write(fd, return_msg, 127);
     next_aid++;
-    return 0;
+    return 1;
 }
 
 int auction_exists(int aid) {
@@ -898,30 +932,70 @@ int tcp_cls(char *return_msg) {
 }
 
 int tcp_sas(int fd, char *return_msg) {
-    int aid, fsize = 0;
-    char fbuf[1024] = "", fname[128] = "*file name*", fpath[128] = "";
+    int aid, remaining, start_fd;
+    char fbuf[128] = "", fname[128] = "", fpath[128] = "", start_content[128];
+    long fsize;
+    memset(fbuf, 0, 128);
+
     if (sscanf(buffer, "SAS %d", &aid) != 1 || !valid_aid(aid)) return -1;
     if (!auction_exists(aid)) return -1;
+
+    sprintf(fpath, "AUCTIONS/%03d/START_%03d.txt", aid, aid);
+    if ((start_fd = open(fpath, O_RDONLY)) == -1) return -1;
+    read(start_fd, start_content, 128);
+    sscanf(start_content, "%*d %*s %s", fname);
+    close(start_fd);
+
     sprintf(fpath, "AUCTIONS/%03d/%s", aid, fname);
     if (!is_File_Exists(fpath)) return -1;
     check_auction_timeout(aid);
-
-    sprintf(return_msg, "RSA OK %s %d\n\n", fname, fsize);
+    fsize = get_file_size(fpath);
+    sprintf(return_msg, "RSA OK %s %ld\n", fname, fsize);
     /* n = write(fd, return_msg, strlen(return_msg) + 1);
     if (n == -1) {
         if (DEBUG) printf("TCP | Error writing in socket (connected) %d\n", fd);
         return -1;
     } */
 
-    // TODO: SEND FILE
+    // Send file
+    int file_to_send;
+    if ((file_to_send = open(fpath, O_RDONLY)) < 0) return -1;
+    remaining = fsize;
 
+    n = write(fd, return_msg, strlen(return_msg));
+    if (n == -1) {
+        if (DEBUG) printf("TCP | Error writing asset (connected) %d\n", fd);
+        return -1;
+    }
+
+    while (remaining > 0) {
+        if (DEBUG)
+            printf("show_asset: Sending file %s | %d bytes remaining \n", fname,
+                   remaining);
+        n = read(file_to_send, fbuf, BUF_SIZE - 1);
+        if (n == -1) {
+            if (DEBUG) printf("TCP | Error reading asset (connected) %d\n", fd);
+            return -1;
+        }
+
+        n = write(fd, fbuf, BUF_SIZE - 1);
+        if (n == -1) {
+            if (DEBUG) printf("TCP | Error writing asset (connected) %d\n", fd);
+            return -1;
+        }
+        remaining -= BUF_SIZE - 1;
+    }
+
+    n = write(fd, "\n\n", 2);
+    close(file_to_send);
+    if (n == -1) return -1;
     return 0;
 }
 
-int tcp_bid(int fd, char *return_msg) {
+int tcp_bid(char *return_msg) {
     char password[PASSWORD_SIZE], path[256], bid_content[128], datetime[128],
         start_content[128];
-    int uid, aid, success, value, highest_bid, start_fd;
+    int uid, aid, value, highest_bid, start_fd;
 
     if (sscanf(buffer, "BID %d %s %d %d", &uid, password, &aid, &value) != 4 ||
         !input_verified(uid, password) || !valid_aid(aid)) {
@@ -998,7 +1072,7 @@ int tcp_bid(int fd, char *return_msg) {
 }
 
 int handle_tcp(int fd) {
-    int aux;
+    int aux, sa = 0;
     char temp[BUF_SIZE];
     char return_msg[BUF_SIZE] = "";
     /* Já conectado, o cliente então escreve algo para a sua socket.
@@ -1010,7 +1084,7 @@ int handle_tcp(int fd) {
     }
 
     /* Faz 'echo' da mensagem recebida para o STDOUT do servidor */
-    printf("TCP | fd:%d\t| Received %zd bytes | %s\n", fd, n, buffer);
+    if (DEBUG) printf("TCP | fd:%d\t| Received %zd bytes | %s\n", fd, n, buffer);
     sscanf(buffer, "%s ", temp);
     if (!strcmp(temp, "OPA")) {
         aux = tcp_opa(fd, return_msg);
@@ -1027,25 +1101,32 @@ int handle_tcp(int fd) {
             sprintf(msg, "RCL ERR\n\n");
         }
     } else if (!strcmp(temp, "SAS")) {
+        sa = 1;
         aux = tcp_sas(fd, return_msg);
         if (aux == -1) {
             memset(msg, 0, sizeof msg);
             sprintf(msg, "RSA ERR\n\n");
         }
+        return aux > 0;
     } else if (!strcmp(temp, "BID")) {
-        aux = tcp_bid(fd, return_msg);
+        aux = tcp_bid(return_msg);
         if (aux == -1) {
             memset(msg, 0, sizeof msg);
             sprintf(msg, "RBD ERR\n\n");
         }
     }
 
-    printf("SERVER MSG: %s", return_msg);
-    n = write(fd, return_msg, strlen(return_msg));
-    if (n == -1) {
-        if (DEBUG) printf("TCP | Error writing in socket (connected) %d\n", fd);
-        return -1;
+    if (!sa) {
+        if (DEBUG) printf("SERVER MSG: %s", return_msg);
+        n = write(fd, return_msg, strlen(return_msg));
+        if (n == -1) {
+            if (DEBUG)
+                printf("TCP | Error writing in socket (connected) %d\n", fd);
+            return -1;
+        }
     }
+    n = read(fd, return_msg, BUF_SIZE);
+    if (message_ended(return_msg, BUF_SIZE)) close(fd);
     return n;
 }
 
@@ -1062,12 +1143,16 @@ int accept_tcp() {
         if (DEBUG) printf("TCP | Error on accept\n");
         return -1;
     }
+    if (verbose)
+        printf("New TCP request | IP: %s | Port: %d\n",
+               inet_ntoa(addr.sin_addr), (int)ntohs(addr.sin_port));
 
     if (DEBUG) printf("TCP | Accepted fd: %d\n", newfd);
     return newfd;
 }
 
 int main(int argc, char **argv) {
+    signal(SIGINT, int_handler);
     if (argc > 1) {
         for (int i = 1; i < argc && i < 4; i += 2) {
             if (!strcmp(argv[i], "-n") && (argc > i + 1)) {
@@ -1079,7 +1164,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    int fd_new, max_fd = 0;
+    int fd_new;
     getcwd(proj_path, 1024);
 
     Create_Initial_Dirs();
@@ -1097,7 +1182,7 @@ int main(int argc, char **argv) {
     }
     if (DEBUG) printf("Found %d auctions.\n", next_aid > 0 ? next_aid - 1 : 0);
 
-    fd_set fds, fds_ready;
+    fd_set fds_ready;
     FD_ZERO(&fds);
     FD_SET(fd_udp, &fds);
     FD_SET(fd_tcp, &fds);
@@ -1106,6 +1191,7 @@ int main(int argc, char **argv) {
     /* Loop para receber bytes e processá-los */
     while (1) {
         memset(msg, 0, BUF_SIZE);
+        memset(buffer, 0, BUF_SIZE);
         fds_ready = fds;
 
         // Debugging fd list
@@ -1132,7 +1218,7 @@ int main(int argc, char **argv) {
                     FD_SET(fd_new, &fds);  // adiciona ao set de FDs
                 } else {
                     if (DEBUG) printf("Handling socket %d...\n", i);
-                    int h = handle_tcp(i);
+                    handle_tcp(i);
                     if (DEBUG) printf("Finished handling\n");
                     // close(i);
                     FD_CLR(i, &fds);
