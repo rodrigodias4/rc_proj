@@ -108,8 +108,8 @@ int handle_udp_server_msg(char *msg) {
         } else {
             return -1;
         }
-    } else if (!strcmp(temp, "RLI")) {
-        if (sscanf(msg, "RLI %s", status) == 1) {
+    } else if (!strcmp(temp, "RLO")) {
+        if (sscanf(msg, "RLO %s", status) == 1) {
             if (!strcmp(status, "OK")) {
                 printf("User logged out successfully.\n");
             }
@@ -130,7 +130,7 @@ int handle_udp_server_msg(char *msg) {
             return -1;
         }
     } else if (!strcmp(temp, "RUR")) {
-        if (sscanf(msg, "RLI %s", status) == 1) {
+        if (sscanf(msg, "RUR %s", status) == 1) {
             if (!strcmp(status, "OK")) {
                 printf("User unregistered successfully.\n");
             }
