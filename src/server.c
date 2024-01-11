@@ -211,12 +211,13 @@ int is_logged_in(int uid) {
 }
 
 int password_correct(int uid, char *password) {
-    char path[128], temp[9];
+    char path[128], temp[9] = "";
     sprintf(path, "%s/USERS/%03d/%03d_pass.txt", proj_path, uid, uid);
     int start_fd;
     start_fd = open(path, O_RDONLY);
     read(start_fd, temp, 8);
     close(start_fd);
+    puts(temp);
     return !strcmp(password, temp);
 }
 
